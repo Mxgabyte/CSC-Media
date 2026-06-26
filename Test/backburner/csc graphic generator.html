@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>CSC Graphic Generator</title>
+<meta charset="UTF-8" />
+
+<style>
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: #020617;
+  color: white;
+}
+
+.header {
+  padding: 22px;
+  text-align: center;
+  font-size: 34px;
+  font-weight: 900;
+  letter-spacing: 2px;
+}
+
+.menu {
+  position: sticky;
+  top: 0;
+  z-index: 999;
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  padding: 14px;
+  background: rgba(2, 6, 23, .95);
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+
+.menu button,
+.card-actions button {
+  border: 1px solid rgba(255,255,255,.15);
+  background: rgba(255,255,255,.08);
+  color: white;
+  padding: 10px 18px;
+  border-radius: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.menu button.active {
+  background: rgba(96,165,250,.25);
+  border-color: rgba(96,165,250,.5);
+}
+
+.status {
+  text-align: center;
+  opacity: .75;
+  margin: 15px;
+}
+
+.page {
+  display: none;
+  padding: 24px;
+}
+
+.page.active { display: block; }
+
+.gallery {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+  align-items: center;
+}
+
+.graphic-wrap { width: fit-content; }
+
+.card-actions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+/* =========================
+   POWER RANKING CARD
+   10in x 2.5in @ 300dpi
+   3000px x 750px
+========================= */
+
+.power-card {
+  width: 3000px;
+  height: 750px;
+  transform: scale(.36);
+  transform-origin: top center;
+  margin-bottom: -470px;
+
+  position: relative;
+  overflow: hidden;
+  border-radius: 22px;
+  border: 6px solid rgba(255,255,255,.14);
+
+  background:
+    radial-gradient(circle at 12% 35%, color-mix(in srgb, var(--team-bg1) 80%, white 20%) 0%, transparent 28%),
+    radial-gradient(circle at 88% 65%, color-mix(in srgb, var(--team-bg2) 85%, white 10%) 0%, transparent 32%),
+    linear-gradient(125deg, var(--team-bg1) 0%, #020617 45%, var(--team-bg2) 100%);
+}
+
+.power-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(0,0,0,.12), rgba(255,255,255,.05), rgba(0,0,0,.18)),
+    radial-gradient(circle at 22% 50%, rgba(255,255,255,.10), transparent 34%);
+  z-index: 1;
+  pointer-events: none;
+}
+
+.power-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(132deg, transparent 0 8%, rgba(255,255,255,.14) 8% 10%, transparent 10% 18%),
+    linear-gradient(132deg, transparent 0 58%, rgba(255,255,255,.10) 58% 60%, transparent 60% 100%),
+    repeating-linear-gradient(
+      132deg,
+      rgba(255,255,255,.035) 0px,
+      rgba(255,255,255,.035) 2px,
+      transparent 2px,
+      transparent 42px
+    );
+  opacity: .65;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.power-accent-slab {
+  display: none;
+}
+
+.power-logo-big {
+  position: absolute;
+  left: 35px;
+  top: 20px;
+  width: 720px;
+  height: 710px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 5;
+}
+
+.power-logo-big img {
+  max-width: 720px;
+  max-height: 710px;
+  object-fit: contain;
+  filter: drop-shadow(0 18px 20px rgba(0,0,0,.45));
+}
+
+.power-content {
+  position: absolute;
+  left: 835px;
+  top: 70px;
+  right: 110px;
+  bottom: 70px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.power-team-name {
+  font-size: 116px;
+  font-weight: 1000;
+  letter-spacing: 2px;
+  white-space: nowrap;
+  text-shadow: 0 8px 14px rgba(0,0,0,.42);
+  margin-bottom: 34px;
+}
+
+.power-stats-line {
+  display: flex;
+  align-items: center;
+  gap: 58px;
+  font-weight: 1000;
+  text-shadow: 0 5px 9px rgba(0,0,0,.35);
+  margin-bottom: 58px;
+}
+
+.stat-block {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+
+.stat-label {
+  font-size: 30px;
+  opacity: .78;
+  letter-spacing: 1px;
+}
+
+.stat-value {
+  font-size: 58px;
+  line-height: 1;
+}
+
+.move-up { color: #22c55e; }
+.move-down { color: #ef4444; }
+.move-same { color: #e5e7eb; }
+
+.power-analysts {
+  display: flex;
+  gap: 30px;
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+}
+
+.analyst-vote {
+  min-width: 310px;
+  height: 120px;
+  padding: 0 30px;
+  border-radius: 22px;
+  background: rgba(5, 10, 25, .66);
+  border: 3px solid rgba(255,255,255,.16);
+  display: grid;
+  grid-template-columns: 1fr 70px;
+  align-items: center;
+  gap: 24px;
+  box-shadow:
+    0 12px 22px rgba(0,0,0,.35),
+    inset 0 0 22px rgba(255,255,255,.05);
+}
+
+.vote-name {
+  font-size: 27px;
+  font-weight: 900;
+  white-space: normal;
+  line-height: 1.08;
+  overflow-wrap: anywhere;
+  max-width: none;
+}
+
+.vote-rank {
+  font-size: 48px;
+  font-weight: 1000;
+  line-height: 1;
+  text-align: right;
+}
+/* =========================
+   MATCHUPS
+========================= */
+
+.match-card {
+  width: 1500px;
+  height: 1500px;
+  transform: scale(.42);
+  transform-origin: top center;
+  margin-bottom: -850px;
+  position: relative;
+  overflow: hidden;
+  border-radius: 24px;
+  border: 6px solid rgba(255,255,255,.15);
+  background:
+    radial-gradient(circle at 20% 25%, var(--team-a-bg) 0%, transparent 34%),
+    radial-gradient(circle at 80% 70%, var(--team-b-bg) 0%, transparent 34%),
+    linear-gradient(135deg, #050505, #111827);
+}
+
+.match-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(0,0,0,.30), rgba(255,255,255,.05), rgba(0,0,0,.30));
+  pointer-events: none;
+  z-index: 1;
+}
+
+.match-title,
+.match-teams {
+  position: relative;
+  z-index: 5;
+}
+
+.match-title {
+  margin-top: 70px;
+  text-align: center;
+  font-size: 58px;
+  font-weight: 1000;
+  letter-spacing: 3px;
+}
+
+.match-teams {
+  margin-top: 85px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 95px;
+}
+
+.match-team {
+  width: 470px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.match-team img {
+  width: 360px;
+  height: 360px;
+  object-fit: contain;
+  filter: drop-shadow(0 18px 20px rgba(0,0,0,.45));
+}
+
+.match-logo-fallback {
+  width: 360px;
+  height: 360px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 86px;
+  font-weight: 1000;
+  border-radius: 28px;
+  background: rgba(255,255,255,.08);
+}
+
+.match-abbr {
+  margin-top: 28px;
+  font-size: 58px;
+  font-weight: 1000;
+}
+
+.vs {
+  font-size: 90px;
+  font-weight: 1000;
+}
+
+.quick-copy-btn {
+  background: rgba(34,197,94,.18);
+  border: 1px solid rgba(34,197,94,.55);
+  color: white;
+  font-size: 16px;
+  padding: 10px 18px;
+  border-radius: 10px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.quick-copy-btn.copied {
+  background: rgba(34,197,94,.45);
+}
+</style>
+</head>
+
+<body>
+
+<div class="header">CSC GRAPHIC GENERATOR</div>
+
+<div class="menu">
+  <button class="active" onclick="showPage('power', this)">Power Rankings</button>
+  <button onclick="showPage('matches', this)">Matchups</button>
+</div>
+
+<div id="status" class="status">Loading graphics...</div>
+
+<div id="power-page" class="page active">
+  <div id="powerGallery" class="gallery"></div>
+</div>
+
+<div id="matches-page" class="page">
+  <div id="matchGallery" class="gallery"></div>
+</div>
+
+<script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
+
+<script>
+const rankingsURL = "https://opensheet.elk.sh/1tbsD14I19C3fPTcmXoDf4VbJfwO16gy2jkBGz19bzmI/Master%20Data";
+const picksURL = "https://opensheet.elk.sh/1r2C35xDoI9wr8pF4dHzd9niqAkx3yJ5xwDF3KlM7K7Y/Picks%2FRecords";
+const logosURL = "https://opensheet.elk.sh/1vx2l-UI_eUlrz8b6f3vca24tUAfqO5w8_kmZsHxVSmw/logos";
+
+/*
+  Your Logos sheet should have:
+  Team Name | Logo | Primary | Secondary
+
+  Logo can be either:
+  AG.png
+  images/AG.png
+  https://example.com/AG.png
+
+  If Logo is just AG.png, put this HTML file in the same folder as the PNGs.
+*/
+
+const defaultStyle = {
+  bg1: "#000000",
+  bg2: "#111827",
+  accent: "#111827"
+};
+
+let teamStyles = {};
+let teamLogos = {};
+
+function showPage(page, button) {
+  document.getElementById("power-page").classList.toggle("active", page === "power");
+  document.getElementById("matches-page").classList.toggle("active", page === "matches");
+
+  document.querySelectorAll(".menu button").forEach(btn => btn.classList.remove("active"));
+  button.classList.add("active");
+}
+
+function safeName(text) {
+  return String(text || "")
+    .replace(/[^a-z0-9]/gi, "_")
+    .replace(/_+/g, "_")
+    .toLowerCase();
+}
+
+function normalizeHex(value, fallback) {
+  let hex = String(value || "").trim();
+
+  if (!hex) return fallback;
+
+  if (!hex.startsWith("#")) hex = "#" + hex;
+
+  return /^#[0-9a-fA-F]{6}$/.test(hex) ? hex.toUpperCase() : fallback;
+}
+
+function normalizeLogoPath(value) {
+  const src = String(value || "").trim();
+
+  if (!src) return "";
+
+  if (/^https?:\/\//i.test(src)) return src;
+
+  return src;
+}
+
+function logo(team, map, fallbackClass = "power-logo-fallback") {
+  const key = String(team || "").toUpperCase();
+  const src = map[key];
+
+  return src
+    ? `<img src="${src}" alt="${key} logo">`
+    : `<div class="${fallbackClass}">${key}</div>`;
+}
+
+function getTeamStyle(team) {
+  const key = String(team || "").toUpperCase();
+  return teamStyles[key] || defaultStyle;
+}
+
+function movement(lastWeek, current) {
+  const diff = Number(lastWeek) - Number(current);
+
+  if (diff > 0) return `<span class="move-up">▲${diff}</span>`;
+  if (diff < 0) return `<span class="move-down">▼${Math.abs(diff)}</span>`;
+  return `<span class="move-same">—</span>`;
+}
+
+function buildLogosAndStyles(logoData) {
+  teamLogos = {};
+  teamStyles = {};
+
+  logoData.forEach(r => {
+    const team = String(r["Team Name"] || r.Team || r.Teams || "").trim().toUpperCase();
+    const logoFile = normalizeLogoPath(r.Logo || r.logo || "");
+
+    const primary = normalizeHex(r.Primary || r.primary || "", defaultStyle.bg1);
+    const secondary = normalizeHex(r.Secondary || r.secondary || "", defaultStyle.bg2);
+
+    if (!team) return;
+
+    if (logoFile) {
+      teamLogos[team] = logoFile;
+    }
+
+    teamStyles[team] = {
+      bg1: primary,
+      bg2: secondary,
+      accent: secondary
+    };
+  });
+
+  window.teamLogos = teamLogos;
+  window.teamStyles = teamStyles;
+
+  console.log("TEAM LOGOS", teamLogos);
+  console.log("TEAM COLORS", teamStyles);
+}
+
+function resizeTeamNames() {
+  document.querySelectorAll(".power-team-name").forEach(el => {
+    let size = 116;
+    el.style.fontSize = size + "px";
+
+    while (el.scrollWidth > el.clientWidth && size > 46) {
+      size -= 4;
+      el.style.fontSize = size + "px";
+    }
+  });
+}
+
+function resizeAnalysts() {
+  document.querySelectorAll(".power-analysts").forEach(row => {
+    const votes = row.querySelectorAll(".analyst-vote");
+
+    if (votes.length > 6) {
+      votes.forEach(v => {
+        v.style.minWidth = "270px";
+        v.style.height = "110px";
+        v.style.gridTemplateColumns = "1fr 62px";
+
+        const name = v.querySelector(".vote-name");
+        const rank = v.querySelector(".vote-rank");
+
+        if (name) name.style.fontSize = "24px";
+        if (rank) rank.style.fontSize = "44px";
+      });
+    }
+
+    if (votes.length > 8) {
+      votes.forEach(v => {
+        v.style.minWidth = "230px";
+        v.style.height = "100px";
+        v.style.gridTemplateColumns = "1fr 56px";
+
+        const name = v.querySelector(".vote-name");
+        const rank = v.querySelector(".vote-rank");
+
+        if (name) name.style.fontSize = "21px";
+        if (rank) rank.style.fontSize = "40px";
+      });
+    }
+  });
+}
+async function renderToCanvas(card) {
+  const oldTransform = card.style.transform;
+  const oldMargin = card.style.marginBottom;
+
+  card.style.transform = "none";
+  card.style.marginBottom = "0";
+
+  const canvas = await html2canvas(card, {
+    backgroundColor: null,
+    scale: 1,
+    useCORS: true,
+    allowTaint: true
+  });
+
+  card.style.transform = oldTransform;
+  card.style.marginBottom = oldMargin;
+
+  return canvas;
+}
+
+async function downloadCard(cardId, filename) {
+  const card = document.getElementById(cardId);
+  const canvas = await renderToCanvas(card);
+
+  const link = document.createElement("a");
+  link.download = filename + ".png";
+  link.href = canvas.toDataURL("image/png");
+  link.click();
+}
+
+async function copyCard(cardId, button) {
+  try {
+    const card = document.getElementById(cardId);
+    const canvas = await renderToCanvas(card);
+
+    canvas.toBlob(async blob => {
+      await navigator.clipboard.write([
+        new ClipboardItem({ "image/png": blob })
+      ]);
+
+      if (button) {
+        const oldText = button.innerText;
+        button.innerText = "Copied!";
+        button.classList.add("copied");
+
+        setTimeout(() => {
+          button.innerText = oldText;
+          button.classList.remove("copied");
+        }, 1200);
+      }
+    }, "image/png");
+  } catch (err) {
+    console.error(err);
+    alert("Copy failed. Open this on localhost or HTTPS. Browser clipboard copy usually will not work from file://");
+  }
+}
+function buildPowerCards(data) {
+  const gallery = document.getElementById("powerGallery");
+  gallery.innerHTML = "";
+
+  data.forEach((row, index) => {
+    const team = String(row.Teams || row.Team || "").toUpperCase();
+    if (!team) return;
+
+    const style = getTeamStyle(team);
+    const currentRank = row["Final Rank"];
+    const lastWeek = row["Last Week Rank"];
+    const cardId = `power_${safeName(team)}_${index}`;
+
+    const analysts = Object.keys(row).filter(k =>
+      !["Teams", "Team", "Avg Rank", "Final Rank", "Last Week Rank"].includes(k)
+    );
+
+    let analystHTML = "";
+    analysts.forEach(a => {
+      if (!row[a]) return;
+
+      analystHTML += `
+        <div class="analyst-vote">
+          <div class="vote-name">${a}</div>
+          <div class="vote-rank">#${row[a]}</div>
+        </div>
+      `;
+    });
+
+    gallery.innerHTML += `
+      <div class="graphic-wrap">
+		<div class="card-actions">
+		  <button class="quick-copy-btn" onclick="copyCard('${cardId}', this)">Quick Copy</button>
+		  <button onclick="downloadCard('${cardId}', 'power_ranking_${safeName(team)}')">Download PNG</button>
+		</div>
+
+        <div
+          id="${cardId}"
+          class="power-card"
+          style="--team-bg1:${style.bg1}; --team-bg2:${style.bg2}; --team-accent:${style.accent};"
+        >
+          <div class="power-accent-slab"></div>
+
+          <div class="power-logo-big">
+            ${logo(team, teamLogos)}
+          </div>
+
+          <div class="power-content">
+            <div class="power-team-name">${team}</div>
+
+            <div class="power-stats-line">
+              <div class="stat-block">
+                <span class="stat-label">RANKING:</span>
+                <span class="stat-value">#${currentRank}</span>
+              </div>
+
+              <div class="stat-block">
+                <span class="stat-label">LAST WEEK:</span>
+                <span class="stat-value">#${lastWeek}</span>
+              </div>
+
+              <div class="stat-block">
+                <span class="stat-label">MOVEMENT:</span>
+                <span class="stat-value">${movement(lastWeek, currentRank)}</span>
+              </div>
+            </div>
+
+            <div class="power-analysts">
+              ${analystHTML}
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  });
+
+  setTimeout(() => {
+    resizeTeamNames();
+    resizeAnalysts();
+  }, 150);
+}
+
+function buildMatchCards(data) {
+  const gallery = document.getElementById("matchGallery");
+  gallery.innerHTML = "";
+
+  data.forEach((row, index) => {
+    const matchup = row.Matchup;
+    if (!matchup) return;
+
+    const parts = matchup.split(/vs/i).map(t => t.trim().toUpperCase());
+    const a = parts[0];
+    const b = parts[1];
+    if (!a || !b) return;
+
+    const styleA = getTeamStyle(a);
+    const styleB = getTeamStyle(b);
+    const cardId = `match_${safeName(a)}_${safeName(b)}_${index}`;
+
+    gallery.innerHTML += `
+      <div class="graphic-wrap">
+        <div class="card-actions">
+          <button class="quick-copy-btn" onclick="copyCard('${cardId}', this)">Quick Copy</button>
+          <button onclick="downloadCard('${cardId}', 'matchup_${safeName(a)}_vs_${safeName(b)}')">Download PNG</button>
+        </div>
+
+        <div
+          id="${cardId}"
+          class="match-card"
+          style="--team-a-bg:${styleA.bg1}; --team-b-bg:${styleB.bg2};"
+        >
+          <div class="match-title">WEEK MATCHUP</div>
+
+          <div class="match-teams">
+            <div class="match-team">
+              ${logo(a, teamLogos, "match-logo-fallback")}
+              <div class="match-abbr">${a}</div>
+            </div>
+
+            <div class="vs">VS</div>
+
+            <div class="match-team">
+              ${logo(b, teamLogos, "match-logo-fallback")}
+              <div class="match-abbr">${b}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  });
+}
+
+async function init() {
+  try {
+    document.getElementById("status").innerText = "Loading sheets...";
+
+    const [rankData, matchData, logoData] = await Promise.all([
+      fetch(rankingsURL).then(r => r.json()),
+      fetch(picksURL).then(r => r.json()),
+      fetch(logosURL).then(r => r.json())
+    ]);
+
+    buildLogosAndStyles(logoData);
+
+    buildPowerCards(rankData);
+    buildMatchCards(matchData);
+
+    document.getElementById("status").innerText = "Graphics loaded.";
+  } catch (err) {
+    console.error(err);
+    document.getElementById("status").innerText = "Failed to load graphics. Check sheet permissions, tab names, and column headers.";
+  }
+}
+
+init();
+</script>
+
+</body>
+</html>

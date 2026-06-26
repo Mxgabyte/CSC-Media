@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>CSC Graphic Generator</title>
+
+<style>
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: #020617;
+  color: white;
+}
+
+.header {
+  padding: 22px;
+  text-align: center;
+  font-size: 34px;
+  font-weight: 900;
+  letter-spacing: 2px;
+}
+
+.menu {
+  position: sticky;
+  top: 0;
+  z-index: 999;
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  padding: 14px;
+  background: rgba(2, 6, 23, .95);
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+
+.menu button,
+.card-actions button {
+  border: 1px solid rgba(255,255,255,.15);
+  background: rgba(255,255,255,.08);
+  color: white;
+  padding: 10px 18px;
+  border-radius: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.menu button.active {
+  background: rgba(96,165,250,.25);
+  border-color: rgba(96,165,250,.5);
+}
+
+.page {
+  display: none;
+  padding: 24px;
+}
+
+.page.active {
+  display: block;
+}
+
+.gallery {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  align-items: center;
+}
+
+.graphic-wrap {
+  width: fit-content;
+}
+
+.card-actions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.power-card {
+  width: 3000px;
+  height: 750px;
+  transform: scale(.36);
+  transform-origin: top center;
+  margin-bottom: -470px;
+}
+
+.match-card {
+  width: 1500px;
+  height: 1500px;
+  transform: scale(.42);
+  transform-origin: top center;
+  margin-bottom: -850px;
+}
+
+.power-card,
+.match-card {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 15% 20%, rgba(255,255,255,.12), transparent 30%),
+    linear-gradient(120deg, #111827 0%, #020617 52%, #1f2937 100%);
+  border: 8px solid rgba(255,255,255,.12);
+}
+
+.power-bg-logo,
+.match-bg-logo {
+  position: absolute;
+  opacity: .08;
+  width: 900px;
+  height: 900px;
+  object-fit: contain;
+  right: -150px;
+  top: -80px;
+}
+
+.power-left {
+  position: absolute;
+  left: 70px;
+  top: 60px;
+  width: 560px;
+  height: 560px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.power-left img {
+  max-width: 520px;
+  max-height: 520px;
+  object-fit: contain;
+}
+
+.power-main {
+  position: absolute;
+  left: 690px;
+  top: 70px;
+  right: 70px;
+}
+
+.power-rank {
+  font-size: 96px;
+  font-weight: 1000;
+  line-height: 1;
+}
+
+.power-team {
+  font-size: 92px;
+  font-weight: 1000;
+  letter-spacing: 2px;
+  margin-top: 10px;
+}
+
+.power-sub {
+  display: flex;
+  gap: 50px;
+  margin-top: 28px;
+  font-size: 42px;
+  font-weight: 900;
+  color: rgba(255,255,255,.82);
+}
+
+.move-up { color: #22c55e; }
+.move-down { color: #ef4444; }
+.move-same { color: #94a3b8; }
+
+.analysts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin-top: 50px;
+}
+
+.analyst-pill {
+  min-width: 210px;
+  padding: 18px 24px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.11);
+  font-size: 28px;
+  font-weight: 900;
+  display: flex;
+  justify-content: space-between;
+  gap: 28px;
+}
+
+.match-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.match-title {
+  margin-top: 70px;
+  font-size: 58px;
+  font-weight: 1000;
+  letter-spacing: 3px;
+  z-index: 2;
+}
+
+.match-teams {
+  margin-top: 85px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 95px;
+  z-index: 2;
+}
+
+.match-team {
+  width: 470px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.match-team img {
+  width: 360px;
+  height: 360px;
+  object-fit: contain;
+}
+
+.match-abbr {
+  margin-top: 28px;
+  font-size: 58px;
+  font-weight: 1000;
+}
+
+.vs {
+  font-size: 90px;
+  font-weight: 1000;
+  text-shadow: 0 8px 18px rgba(0,0,0,.55);
+}
+
+.pick-box {
+  margin-top: 70px;
+  width: 1180px;
+  padding: 35px;
+  border-radius: 36px;
+  background: rgba(255,255,255,.10);
+  border: 3px solid rgba(255,255,255,.12);
+  z-index: 2;
+}
+
+.pick-title {
+  text-align: center;
+  font-size: 34px;
+  letter-spacing: 4px;
+  font-weight: 1000;
+  opacity: .7;
+  margin-bottom: 25px;
+}
+
+.pick-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+
+.pick-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 31px;
+  font-weight: 900;
+  padding: 16px 20px;
+  border-radius: 18px;
+  background: rgba(0,0,0,.18);
+}
+
+.pick-row img {
+  width: 52px;
+  height: 52px;
+  object-fit: contain;
+}
+
+.status {
+  text-align: center;
+  opacity: .7;
+  margin: 15px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="header">CSC GRAPHIC GENERATOR</div>
+
+<div class="menu">
+  <button class="active" onclick="showPage('power', this)">Power Rankings</button>
+  <button onclick="showPage('matches', this)">Matchups</button>
+</div>
+
+<div id="status" class="status">Loading graphics...</div>
+
+<div id="power-page" class="page active">
+  <div id="powerGallery" class="gallery"></div>
+</div>
+
+<div id="matches-page" class="page">
+  <div id="matchGallery" class="gallery"></div>
+</div>
+
+<script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
+
+<script>
+const rankingsURL = "https://opensheet.elk.sh/1tbsD14I19C3fPTcmXoDf4VbJfwO16gy2jkBGz19bzmI/Master%20Data";
+const picksURL = "https://opensheet.elk.sh/1r2C35xDoI9wr8pF4dHzd9niqAkx3yJ5xwDF3KlM7K7Y/Picks%2FRecords";
+const logosURL = "https://opensheet.elk.sh/1vx2l-UI_eUlrz8b6f3vca24tUAfqO5w8_kmZsHxVSmw/logos";
+
+function showPage(page, button) {
+  document.getElementById("power-page").classList.toggle("active", page === "power");
+  document.getElementById("matches-page").classList.toggle("active", page === "matches");
+
+  document.querySelectorAll(".menu button").forEach(btn => btn.classList.remove("active"));
+  button.classList.add("active");
+}
+
+function safeName(text) {
+  return String(text || "")
+    .replace(/[^a-z0-9]/gi, "_")
+    .replace(/_+/g, "_")
+    .toLowerCase();
+}
+
+function logoURL(team, logos) {
+  return logos[String(team || "").toUpperCase()] || "";
+}
+
+function logoImg(team, logos) {
+  const key = String(team || "").toUpperCase();
+
+  return logos[key]
+    ? `<img src="${logos[key]}">`
+    : `<div>${key}</div>`;
+}
+
+function movement(lastWeek, current) {
+  const diff = Number(lastWeek) - Number(current);
+
+  if (diff > 0) return `<span class="move-up">▲ ${diff}</span>`;
+  if (diff < 0) return `<span class="move-down">▼ ${Math.abs(diff)}</span>`;
+  return `<span class="move-same">—</span>`;
+}
+
+async function renderToCanvas(card) {
+  const oldTransform = card.style.transform;
+  const oldMargin = card.style.marginBottom;
+
+  card.style.transform = "none";
+  card.style.marginBottom = "0";
+
+  const canvas = await html2canvas(card, {
+    backgroundColor: null,
+    scale: 1,
+    useCORS: true,
+    allowTaint: true
+  });
+
+  card.style.transform = oldTransform;
+  card.style.marginBottom = oldMargin;
+
+  return canvas;
+}
+
+async function downloadCard(cardId, filename) {
+  const card = document.getElementById(cardId);
+  const canvas = await renderToCanvas(card);
+
+  const link = document.createElement("a");
+  link.download = filename + ".png";
+  link.href = canvas.toDataURL("image/png");
+  link.click();
+}
+
+async function copyCard(cardId) {
+  try {
+    const card = document.getElementById(cardId);
+    const canvas = await renderToCanvas(card);
+
+    canvas.toBlob(async blob => {
+      await navigator.clipboard.write([
+        new ClipboardItem({ "image/png": blob })
+      ]);
+      alert("Copied image to clipboard");
+    });
+  } catch (err) {
+    alert("Copy failed. Use Download PNG instead. Copy usually requires localhost or HTTPS.");
+  }
+}
+
+function buildPowerCards(data, logos) {
+  const gallery = document.getElementById("powerGallery");
+  gallery.innerHTML = "";
+
+  data.forEach((row, index) => {
+    const team = String(row.Teams || "").toUpperCase();
+    if (!team) return;
+
+    const currentRank = row["Final Rank"];
+    const lastWeek = row["Last Week Rank"];
+    const avgRank = row["Avg Rank"];
+    const cardId = `power_${safeName(team)}_${index}`;
+
+    const analysts = Object.keys(row).filter(k =>
+      !["Teams", "Avg Rank", "Final Rank", "Last Week Rank"].includes(k)
+    );
+
+    let analystHTML = "";
+    analysts.forEach(a => {
+      if (!row[a]) return;
+      analystHTML += `
+        <div class="analyst-pill">
+          <span>${a}</span>
+          <span>#${row[a]}</span>
+        </div>
+      `;
+    });
+
+    gallery.innerHTML += `
+      <div class="graphic-wrap">
+        <div class="card-actions">
+          <button onclick="copyCard('${cardId}')">Copy Image</button>
+          <button onclick="downloadCard('${cardId}', 'power_ranking_${safeName(team)}')">Download PNG</button>
+        </div>
+
+        <div id="${cardId}" class="power-card">
+          <img class="power-bg-logo" src="${logoURL(team, logos)}" crossorigin="anonymous">
+
+          <div class="power-left">
+            ${logoImg(team, logos)}
+          </div>
+
+          <div class="power-main">
+            <div class="power-rank">#${currentRank} ${movement(lastWeek, currentRank)}</div>
+            <div class="power-team">${team}</div>
+
+            <div class="power-sub">
+              <div>LAST WEEK: #${lastWeek}</div>
+              <div>AVG RANK: ${avgRank}</div>
+            </div>
+
+            <div class="analysts">
+              ${analystHTML}
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  });
+}
+
+function buildMatchCards(data, logos) {
+  const gallery = document.getElementById("matchGallery");
+  gallery.innerHTML = "";
+
+  data.forEach((row, index) => {
+    const matchup = row.Matchup;
+    if (!matchup) return;
+
+    const parts = matchup.split(/vs/i).map(t => t.trim().toUpperCase());
+    const a = parts[0];
+    const b = parts[1];
+    if (!a || !b) return;
+
+    const cardId = `match_${safeName(a)}_${safeName(b)}_${index}`;
+
+    const writers = Object.keys(row).filter(k =>
+      !["Matchup", "Winner", "Template"].includes(k)
+    );
+
+    let picksHTML = "";
+    writers.forEach(w => {
+      const pick = String(row[w] || "").toUpperCase();
+      if (!pick) return;
+
+      picksHTML += `
+        <div class="pick-row">
+          <span>${w}</span>
+          <span>${pick} ${logoImg(pick, logos)}</span>
+        </div>
+      `;
+    });
+
+    gallery.innerHTML += `
+      <div class="graphic-wrap">
+        <div class="card-actions">
+          <button onclick="copyCard('${cardId}')">Copy Image</button>
+          <button onclick="downloadCard('${cardId}', 'matchup_${safeName(a)}_vs_${safeName(b)}')">Download PNG</button>
+        </div>
+
+        <div id="${cardId}" class="match-card">
+          <img class="match-bg-logo" src="${logoURL(a, logos)}" crossorigin="anonymous">
+
+          <div class="match-title">WEEK MATCHUP</div>
+
+          <div class="match-teams">
+            <div class="match-team">
+              ${logoImg(a, logos)}
+              <div class="match-abbr">${a}</div>
+            </div>
+
+            <div class="vs">VS</div>
+
+            <div class="match-team">
+              ${logoImg(b, logos)}
+              <div class="match-abbr">${b}</div>
+            </div>
+          </div>
+
+          <div class="pick-box">
+            <div class="pick-title">ANALYST PICKS</div>
+            <div class="pick-grid">
+              ${picksHTML}
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  });
+}
+
+async function init() {
+  try {
+    const [rankData, matchData, logoData] = await Promise.all([
+      fetch(rankingsURL).then(r => r.json()),
+      fetch(picksURL).then(r => r.json()),
+      fetch(logosURL).then(r => r.json())
+    ]);
+
+    const logos = {};
+    logoData.forEach(r => {
+      const v = Object.values(r);
+      if (v[0] && v[1]) {
+        logos[String(v[0]).toUpperCase()] = v[1];
+      }
+    });
+
+    buildPowerCards(rankData, logos);
+    buildMatchCards(matchData, logos);
+
+    document.getElementById("status").innerText = "Graphics loaded";
+  } catch (err) {
+    console.error(err);
+    document.getElementById("status").innerText = "Failed to load graphics. Check sheet permissions/URLs.";
+  }
+}
+
+init();
+</script>
+
+</body>
+</html>
