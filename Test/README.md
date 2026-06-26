@@ -8,8 +8,12 @@ Changed:
 - Consolidated power ranking graphic rendering into one shared builder used by both Power Rankings and Power Article.
 - Added a Load Debug panel with row counts and warnings for missing/blank sheet data.
 - Added PNG download fallback when browser clipboard image copy is blocked.
-- Left the power rankings card content/design alone.
+- Fixed rich article copy canvas tainting by using safe logo fallbacks during file:// canvas export.
 
-
-Patch note:
-- Fixed rich article copy canvas tainting by inlining card images as data URLs before html2canvas exports them. If an image cannot be inlined because the browser blocks it, the export uses a safe text fallback instead of failing the full article copy.
+Power rankings record update:
+- Added a new team records source in `config.js`: `TEAM_RECORDS_SHEET_URL`.
+- The records sheet expects one worksheet per tier.
+- Column A = Franchise, Column B = Team Name, Column C = Record.
+- Power ranking cards now show the franchise plus the team name underneath.
+- Power ranking cards now show a `CURRENT RECORD` box on the far right when a record is available.
+- Cache key was bumped so the app pulls fresh data instead of using old saved cards without records.

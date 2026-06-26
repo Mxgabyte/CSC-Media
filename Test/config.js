@@ -38,6 +38,14 @@ const TIER_ORDER = [
 const CONFIG_SHEET_URL = "https://docs.google.com/spreadsheets/d/1dCGPRYudr0X5ektYEA55WWwAxRax5zSdqzjoddAM0QE/edit?usp=sharing";
 const CONFIG_TAB = "Config";
 
+// Sheet with one worksheet per tier.
+// Column A = Franchise, Column B = Team Name, Column C = Record.
+const TEAM_RECORDS_SHEET_URL = "https://docs.google.com/spreadsheets/d/1nioy7RQUH5OIO4u_jBh8FTV3GtJzmUae2AAj1eAE1C4/edit?usp=sharing";
+const TEAM_RECORDS_TAB_FALLBACKS = {
+  Premier: ["Premier", "Master"],
+  Master: ["Master", "Premier"]
+};
+
 let TIER_CONFIG = {};
 
 let currentTier = "Premier";

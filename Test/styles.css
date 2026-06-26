@@ -218,13 +218,31 @@ body {
   justify-content: center;
 }
 
+.power-card.has-record .power-content {
+  right: 660px;
+}
+
+.power-title-block {
+  margin-bottom: 30px;
+}
+
 .power-team-name {
   font-size: 116px;
   font-weight: 1000;
   letter-spacing: 2px;
   white-space: nowrap;
   text-shadow: 0 8px 14px rgba(0,0,0,.42);
-  margin-bottom: 34px;
+  margin-bottom: 8px;
+}
+
+.power-team-subtitle {
+  font-size: 54px;
+  font-weight: 1000;
+  letter-spacing: 1px;
+  white-space: nowrap;
+  line-height: 1.05;
+  color: rgba(255,255,255,.88);
+  text-shadow: 0 6px 12px rgba(0,0,0,.44);
 }
 
 .power-stats-line {
@@ -251,6 +269,50 @@ body {
 .stat-value {
   font-size: 58px;
   line-height: 1;
+}
+
+.power-record-box {
+  position: absolute;
+  right: 96px;
+  top: 252px;
+  z-index: 12;
+
+  width: 470px;
+  height: 190px;
+  border-radius: 20px;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+
+  background:
+    radial-gradient(circle at 50% 72%, rgba(255,255,255,.10), transparent 54%),
+    linear-gradient(180deg, rgba(15,23,42,.94), rgba(15,23,42,.72));
+
+  border: 3px solid rgba(255,255,255,.13);
+
+  box-shadow:
+    0 18px 34px rgba(0,0,0,.42),
+    inset 0 1px 0 rgba(255,255,255,.08);
+
+  text-shadow: 0 5px 10px rgba(0,0,0,.55);
+}
+
+.record-label {
+  font-size: 32px;
+  font-weight: 1000;
+  letter-spacing: 1.6px;
+  color: rgba(255,255,255,.76);
+}
+
+.record-value {
+  font-size: 78px;
+  font-weight: 1000;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: white;
 }
 
 .move-up { color: #22c55e; }

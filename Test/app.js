@@ -7,6 +7,42 @@ function normalizeHex(value, fallback) {
 
   return /^#[0-9a-fA-F]{6}$/.test(hex) ? hex.toUpperCase() : fallback;
 }
+
+function getSafeErrorMessage(err, fallback = "Unknown error") {
+  if (err instanceof Error && err.message) return err.message;
+
+  if (typeof err === "string" && err.trim()) return err.trim();
+
+  try {
+    const text = JSON.stringify(err);
+    return text && text !== "undefined" ? text : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function isFileProtocol() {
+  return window.location && window.location.protocol === "file:";
+}
+
+async function fetchOpenSheetDataOnly(url, label) {
+  const response = await fetch(url, {
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    throw new Error(`${label} failed to load through OpenSheet. Status: ${response.status}`);
+  }
+
+  const data = await response.json();
+
+  if (!Array.isArray(data)) {
+    throw new Error(`${label} did not return rows.`);
+  }
+
+  return data;
+}
+
 function showBlankMatchupsMessage() {
   const gallery = document.getElementById("matchGallery");
 
@@ -27,7 +63,7 @@ async function loadPlayerProfileNames() {
     for (const tabName of tabsToTry) {
       try {
         const url = openSheetURL(PLAYER_LIST_SHEET_ID, tabName);
-        rows = await fetchSheetData(url, `Player Profile Names (${tabName})`);
+        rows = await fetchOpenSheetDataOnly(url, `Player Profile Names (${tabName})`);
 
         if (Array.isArray(rows) && rows.length) {
           loadedTab = tabName;
@@ -199,6 +235,101 @@ function getRowValue(row, possibleHeaders) {
   return actualKey ? row[actualKey] : "";
 }
 
+function getRowValueLoose(row, possibleHeaders, fallbackIndex = -1) {
+  if (!row) return "";
+
+  const wanted = possibleHeaders.map(normalizeHeaderName);
+  const actualKey = Object.keys(row).find(key => wanted.includes(normalizeHeaderName(key)));
+
+  if (actualKey && String(row[actualKey] || "").trim()) {
+    return row[actualKey];
+  }
+
+  if (fallbackIndex >= 0) {
+    const values = Object.values(row);
+    return values[fallbackIndex] || "";
+  }
+
+  return "";
+}
+
+function normalizeTeamKey(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+function getTierRecordTabs(tierName) {
+  const configuredFallbacks = (TEAM_RECORDS_TAB_FALLBACKS && TEAM_RECORDS_TAB_FALLBACKS[tierName]) || [];
+  return [...new Set([tierName, ...configuredFallbacks])].filter(Boolean);
+}
+
+function getTeamRecordFromRow(row) {
+  const franchise = normalizeTeamKey(getRowValueLoose(row, [
+    "Franchise",
+    "Franchise Name",
+    "Team",
+    "Teams"
+  ], 0));
+
+  const teamName = String(getRowValueLoose(row, [
+    "Team Name",
+    "TeamName",
+    "Name",
+    "Roster Name"
+  ], 1) || "").trim();
+
+  const record = String(getRowValueLoose(row, [
+    "Record",
+    "Current Record",
+    "W-L",
+    "W/L",
+    "Wins-Losses"
+  ], 2) || "").trim();
+
+  return { franchise, teamName, record };
+}
+
+function buildTeamRecordMap(teamRecordData = []) {
+  const map = {};
+
+  (teamRecordData || []).forEach(row => {
+    const recordModel = getTeamRecordFromRow(row);
+    if (!recordModel.franchise) return;
+    map[recordModel.franchise] = recordModel;
+  });
+
+  return map;
+}
+
+async function fetchTeamRecordData(tierName) {
+  const recordsId = extractGoogleSheetId(TEAM_RECORDS_SHEET_URL);
+
+  if (!recordsId) {
+    console.warn("Team records sheet URL is invalid. Record boxes will be blank.");
+    return [];
+  }
+
+  const tabsToTry = getTierRecordTabs(tierName);
+
+  for (const tabName of tabsToTry) {
+    try {
+      const rows = await fetchSheetData(
+        openSheetURL(recordsId, tabName),
+        `${tierName} Team Records (${tabName})`
+      );
+
+      if (Array.isArray(rows) && rows.length) {
+        console.log(`TEAM RECORDS LOADED from ${tabName}:`, rows.length);
+        return rows;
+      }
+    } catch (err) {
+      console.warn(`Team records tab failed: ${tabName}`, err);
+    }
+  }
+
+  console.warn(`No team records loaded for ${tierName}.`);
+  return [];
+}
+
 async function loadTierConfig() {
   const configId = extractGoogleSheetId(CONFIG_SHEET_URL);
 
@@ -266,16 +397,17 @@ function localLogoPath(team) {
 }
 
 function tierCacheKey(tierName) {
-  return `csc_article_generator_saved_data_v3_${tierName}`;
+  return `csc_article_generator_saved_data_v4_${tierName}`;
 }
 
-function saveTierData(tierName, rankData, matchData, finalRows = [], yapRows = []) {
+function saveTierData(tierName, rankData, matchData, finalRows = [], yapRows = [], teamRecordData = []) {
   const payload = {
     savedAt: new Date().toISOString(),
     rankData,
     matchData,
     finalRows,
-    yapRows
+    yapRows,
+    teamRecordData
   };
 
   localStorage.setItem(tierCacheKey(tierName), JSON.stringify(payload));
@@ -298,6 +430,10 @@ function getSavedTierData(tierName) {
 
     if (!Array.isArray(payload.yapRows)) {
       payload.yapRows = [];
+    }
+
+    if (!Array.isArray(payload.teamRecordData)) {
+      payload.teamRecordData = [];
     }
 
     return payload;
@@ -468,6 +604,11 @@ async function fetchSheetData(url, label) {
     const sheetInfo = extractOpenSheetInfo(url);
 
     if (!sheetInfo) {
+      throw openSheetErr;
+    }
+
+    if (isFileProtocol()) {
+      console.warn(`${label} OpenSheet pull failed. Google CSV fallback skipped because the app is running from file://. Use localhost/Netlify for CSV fallback.`, openSheetErr);
       throw openSheetErr;
     }
 
@@ -888,7 +1029,7 @@ async function extractColorsFromLogo(team) {
     teamColorCache[key] = style;
     return style;
   } catch (err) {
-    console.warn(err.message);
+    console.warn(getSafeErrorMessage(err));
 
     teamColorCache[key] = defaultStyle;
     return defaultStyle;
@@ -945,6 +1086,19 @@ function resizeTeamNames() {
 
     while (name.scrollWidth > container.clientWidth && size > 62) {
       size -= 4;
+      name.style.fontSize = size + "px";
+    }
+  });
+
+  document.querySelectorAll(".power-team-subtitle").forEach(name => {
+    const container = name.closest(".power-content");
+    if (!container) return;
+
+    let size = 54;
+    name.style.fontSize = size + "px";
+
+    while (name.scrollWidth > container.clientWidth && size > 30) {
+      size -= 3;
       name.style.fontSize = size + "px";
     }
   });
@@ -1031,88 +1185,65 @@ function fallbackLogoDataURL(img) {
     .trim()
     .slice(0, 12) || "LOGO";
 
+  const safeLabel = escapeHTML(label);
+
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" viewBox="0 0 240 240">
       <rect width="240" height="240" rx="28" fill="#0f172a"/>
       <rect x="8" y="8" width="224" height="224" rx="24" fill="none" stroke="rgba(255,255,255,.25)" stroke-width="8"/>
-      <text x="120" y="126" dominant-baseline="middle" text-anchor="middle" font-family="Arial, sans-serif" font-size="42" font-weight="900" fill="#ffffff">${escapeHTML(label)}</text>
+      <text x="120" y="126" dominant-baseline="middle" text-anchor="middle" font-family="Arial, sans-serif" font-size="42" font-weight="900" fill="#ffffff">${safeLabel}</text>
     </svg>
   `;
 
   return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
 }
 
-async function imageSourceToDataURL(src) {
+function shouldUseCanvasSafeFallback(src) {
   const cleanSrc = String(src || "").trim();
 
-  if (!cleanSrc) return TRANSPARENT_PIXEL;
-  if (/^data:/i.test(cleanSrc)) return cleanSrc;
-  if (/^blob:/i.test(cleanSrc)) return cleanSrc;
+  if (!cleanSrc) return true;
+  if (/^data:/i.test(cleanSrc)) return false;
+  if (/^blob:/i.test(cleanSrc)) return false;
 
-  const url = resolveImageURL(cleanSrc);
+  // When the app is opened directly as file://, browsers block fetch/canvas
+  // export for local images. The on-screen card can still show the real logo,
+  // but the rich-copy canvas needs a same-document fallback.
+  if (isFileProtocol()) return true;
 
-  const response = await fetch(url, {
-    cache: "no-store",
-    mode: "cors"
-  });
+  const resolved = resolveImageURL(cleanSrc);
+  if (/^file:/i.test(resolved)) return true;
 
-  if (!response.ok) {
-    throw new Error(`Image failed to load for canvas export: ${response.status}`);
-  }
-
-  const blob = await response.blob();
-  return blobToDataURL(blob);
+  return false;
 }
 
-async function makeImagesCanvasSafe(element) {
-  const imgs = Array.from(element.querySelectorAll("img"));
-  const restore = [];
+function makeClonedImagesCanvasSafe(clonedElement) {
+  if (!clonedElement) return;
 
-  for (const img of imgs) {
-    const originalSrc = img.getAttribute("src") || "";
-    const originalCrossOrigin = img.getAttribute("crossorigin");
+  const imgs = Array.from(clonedElement.querySelectorAll("img"));
 
-    restore.push(() => {
-      img.setAttribute("src", originalSrc);
+  imgs.forEach(img => {
+    const src = img.getAttribute("src") || "";
 
-      if (originalCrossOrigin === null) {
-        img.removeAttribute("crossorigin");
-      } else {
-        img.setAttribute("crossorigin", originalCrossOrigin);
-      }
-    });
+    if (!shouldUseCanvasSafeFallback(src)) return;
 
-    try {
-      const safeSrc = await imageSourceToDataURL(originalSrc);
-      img.removeAttribute("crossorigin");
-      img.setAttribute("src", safeSrc);
-    } catch (err) {
-      console.warn("Could not inline image for canvas export. Using safe fallback.", originalSrc, err);
-      img.removeAttribute("crossorigin");
-      img.setAttribute("src", fallbackLogoDataURL(img));
-    }
-  }
-
-  await waitForImages(element);
-
-  return () => {
-    restore.forEach(fn => fn());
-  };
+    img.removeAttribute("srcset");
+    img.removeAttribute("crossorigin");
+    img.removeAttribute("onerror");
+    img.setAttribute("src", fallbackLogoDataURL(img));
+  });
 }
 
 async function renderToCanvas(card) {
+  if (!card) throw new Error("Card not found for canvas render.");
+
   const oldTransform = card.style.transform;
   const oldMargin = card.style.marginBottom;
 
   const buttons = card.querySelectorAll("button");
-  let restoreImages = null;
 
   try {
     buttons.forEach(btn => btn.style.display = "none");
-
-    // Prevent tainted canvases by converting every logo/image inside the card
-    // to a same-document data URL before html2canvas renders it.
-    restoreImages = await makeImagesCanvasSafe(card);
+    await waitForImages(card);
 
     card.style.transform = "none";
     card.style.marginBottom = "0";
@@ -1122,13 +1253,23 @@ async function renderToCanvas(card) {
       scale: 1,
       useCORS: true,
       allowTaint: false,
-      imageTimeout: 15000
+      imageTimeout: 15000,
+      onclone: (clonedDocument, clonedElement) => {
+        if (!clonedElement) return;
+
+        clonedElement.style.transform = "none";
+        clonedElement.style.marginBottom = "0";
+
+        clonedElement.querySelectorAll("button").forEach(btn => {
+          btn.style.display = "none";
+        });
+
+        makeClonedImagesCanvasSafe(clonedElement);
+      }
     });
   } finally {
     card.style.transform = oldTransform;
     card.style.marginBottom = oldMargin;
-
-    if (restoreImages) restoreImages();
 
     buttons.forEach(btn => btn.style.display = "");
   }
@@ -1186,7 +1327,7 @@ async function copyCard(cardId, button) {
   } catch (err) {
     console.error("COPY ERROR:", err);
     if (button) button.innerText = oldText;
-    alert("Copy failed: " + err.message);
+    alert("Copy failed: " + getSafeErrorMessage(err));
   }
 }
 function normalizeHeaderName(value) {
@@ -1281,12 +1422,13 @@ const IGNORED_POWER_COLUMNS = [
   "Description", "Reason", "Reasoning", "Article", "Text"
 ];
 
-function getPowerCardModel(row, index, idPrefix = "power") {
+function getPowerCardModel(row, index, idPrefix = "power", teamRecordMap = {}) {
   const team = String(row.Teams || row.Team || "").trim().toUpperCase();
   const style = getTeamStyle(team);
   const currentRank = getPowerColumn(row, POWER_COLUMN_HEADERS.currentRank);
   const lastWeek = getPowerColumn(row, POWER_COLUMN_HEADERS.lastWeek);
   const movementValue = getPowerColumn(row, POWER_COLUMN_HEADERS.movement);
+  const teamRecord = teamRecordMap[normalizeTeamKey(team)] || {};
   const ignoredPowerColumnsNormalized = IGNORED_POWER_COLUMNS.map(normalizeHeaderName);
 
   const analysts = Object.keys(row)
@@ -1299,6 +1441,8 @@ function getPowerCardModel(row, index, idPrefix = "power") {
 
   return {
     team,
+    teamName: teamRecord.teamName || "",
+    record: teamRecord.record || "",
     style,
     currentRank,
     lastWeek,
@@ -1309,7 +1453,12 @@ function getPowerCardModel(row, index, idPrefix = "power") {
 }
 
 function buildPowerCardHTML(row, index, options = {}) {
-  const model = getPowerCardModel(row, index, options.idPrefix || "power");
+  const model = getPowerCardModel(
+    row,
+    index,
+    options.idPrefix || "power",
+    options.teamRecordMap || {}
+  );
   if (!model.team) return "";
 
   const analystHTML = model.analysts.map(analyst => `
@@ -1322,7 +1471,7 @@ function buildPowerCardHTML(row, index, options = {}) {
   return `
     <div
       id="${model.cardId}"
-      class="power-card"
+      class="power-card ${model.record ? "has-record" : ""}"
       style="
         --team-primary:${model.style.primary};
         --team-secondary:${model.style.secondary};
@@ -1341,7 +1490,10 @@ function buildPowerCardHTML(row, index, options = {}) {
       </div>
 
       <div class="power-content">
-        <div class="power-team-name">${escapeHTML(model.team)}</div>
+        <div class="power-title-block">
+          <div class="power-team-name">${escapeHTML(model.team)}</div>
+          ${model.teamName ? `<div class="power-team-subtitle">${escapeHTML(model.teamName)}</div>` : ""}
+        </div>
 
         <div class="power-stats-line">
           <div class="stat-block">
@@ -1364,13 +1516,22 @@ function buildPowerCardHTML(row, index, options = {}) {
           ${analystHTML}
         </div>
       </div>
+
+      ${model.record ? `
+        <div class="power-record-box">
+          <div class="record-label">CURRENT RECORD</div>
+          <div class="record-value">${escapeHTML(model.record)}</div>
+        </div>
+      ` : ""}
     </div>
   `;
 }
 
-function buildPowerCards(data) {
+function buildPowerCards(data, teamRecordData = []) {
   const gallery = document.getElementById("powerGallery");
   gallery.innerHTML = "";
+
+  const teamRecordMap = buildTeamRecordMap(teamRecordData);
 
   getSortedPowerData(data).forEach((row, index) => {
     const team = String(row.Teams || row.Team || "").trim().toUpperCase();
@@ -1380,7 +1541,7 @@ function buildPowerCards(data) {
     wrap.className = "graphic-wrap";
     wrap.innerHTML = `
       <div class="card-actions"></div>
-      ${buildPowerCardHTML(row, index, { idPrefix: "power" })}
+      ${buildPowerCardHTML(row, index, { idPrefix: "power", teamRecordMap })}
     `;
 
     gallery.appendChild(wrap);
@@ -1404,8 +1565,8 @@ function removeRankTitleLine(text) {
     .join("\n");
 }
 
-function buildPowerArticleGraphicHTML(row, index) {
-  return buildPowerCardHTML(row, index, { idPrefix: "article_power" });
+function buildPowerArticleGraphicHTML(row, index, teamRecordMap = {}) {
+  return buildPowerCardHTML(row, index, { idPrefix: "article_power", teamRecordMap });
 }
 
 function articleTextForSection(team, section, fallbackRank) {
@@ -1416,13 +1577,14 @@ function articleTextForSection(team, section, fallbackRank) {
   return section.rawLines.join("\n").trim();
 }
 
-function buildArticleView(rankData, finalRows) {
+function buildArticleView(rankData, finalRows, teamRecordData = []) {
   const gallery = document.getElementById("articleGallery");
   gallery.innerHTML = "";
   currentArticleTextBlocks = [];
 
   const finalColumnNSections = getFinalColumnNSections(finalRows || []);
   const sortedData = getSortedPowerData(rankData).reverse();
+  const teamRecordMap = buildTeamRecordMap(teamRecordData);
 
   const toolbar = document.createElement("div");
   toolbar.className = "article-toolbar";
@@ -1462,7 +1624,7 @@ function buildArticleView(rankData, finalRows) {
     const item = document.createElement("div");
     item.className = "article-item";
     item.innerHTML = `
-      ${buildPowerArticleGraphicHTML(row, index)}
+      ${buildPowerArticleGraphicHTML(row, index, teamRecordMap)}
 
       <div class="article-text-box">
         <div class="article-rank-title">
@@ -1589,10 +1751,10 @@ async function copyFullArticleText(button) {
         setTimeout(() => button.innerText = originalText, 1600);
       }
 
-      alert("Full article rich copy failed, so I copied the text only. Error: " + err.message);
+      alert("Full article rich copy failed, so I copied the text only. Error: " + getSafeErrorMessage(err));
     } catch (fallbackErr) {
       if (button) button.innerText = originalText;
-      alert("Article copy failed: " + err.message);
+      alert("Article copy failed: " + getSafeErrorMessage(err));
     }
   }
 }
@@ -1647,7 +1809,7 @@ async function copyTeamArticleText(index, button) {
       console.error("TEAM ARTICLE TEXT FALLBACK ERROR:", fallbackErr);
     }
 
-    alert("Article copy failed: " + err.message);
+    alert("Article copy failed: " + getSafeErrorMessage(err));
   }
 }
 
@@ -2095,10 +2257,10 @@ async function copyFullPredictionArticleText(button) {
         setTimeout(() => button.innerText = originalText, 1600);
       }
 
-      alert("Full prediction article rich copy failed, so I copied the text only. Error: " + err.message);
+      alert("Full prediction article rich copy failed, so I copied the text only. Error: " + getSafeErrorMessage(err));
     } catch (fallbackErr) {
       if (button) button.innerText = originalText;
-      alert("Prediction article copy failed: " + err.message);
+      alert("Prediction article copy failed: " + getSafeErrorMessage(err));
     }
   }
 }
@@ -2118,7 +2280,7 @@ async function copyPredictionArticleText(index, button) {
     }
   } catch (err) {
     console.error("PREDICTION TEAM ARTICLE COPY ERROR:", err);
-    alert("Prediction article copy failed: " + err.message);
+    alert("Prediction article copy failed: " + getSafeErrorMessage(err));
   }
 }
 
@@ -2234,6 +2396,34 @@ function validateMatchData(matchData) {
   return { ok: warnings.length === 0, warnings, matchupCount };
 }
 
+function validateTeamRecordData(teamRecordData) {
+  const warnings = [];
+
+  if (!Array.isArray(teamRecordData) || !teamRecordData.length) {
+    return {
+      ok: true,
+      warnings: ["Team records sheet is blank or unavailable. Power cards will not show current records."],
+      recordRows: 0,
+      recordsWithFranchise: 0,
+      recordsWithRecord: 0
+    };
+  }
+
+  const recordsWithFranchise = countRowsWithValue(teamRecordData, row => getTeamRecordFromRow(row).franchise);
+  const recordsWithRecord = countRowsWithValue(teamRecordData, row => getTeamRecordFromRow(row).record);
+
+  if (!recordsWithFranchise) warnings.push("Team records loaded, but no franchise values were found in column A.");
+  if (!recordsWithRecord) warnings.push("Team records loaded, but no record values were found in column C.");
+
+  return {
+    ok: warnings.length === 0,
+    warnings,
+    recordRows: teamRecordData.length,
+    recordsWithFranchise,
+    recordsWithRecord
+  };
+}
+
 function countFinalColumnNRows(rows) {
   return (rows || []).filter((row, index) => {
     if (index === 0) return false;
@@ -2241,10 +2431,11 @@ function countFinalColumnNRows(rows) {
   }).length;
 }
 
-function buildDebugReport(tierName, rankData, matchData, finalRows, yapRows, savedAt) {
+function buildDebugReport(tierName, rankData, matchData, finalRows, yapRows, teamRecordData = [], savedAt) {
   const rankValidation = validateRankData(rankData);
   const matchValidation = validateMatchData(matchData);
-  const warnings = [...rankValidation.warnings, ...matchValidation.warnings];
+  const teamRecordValidation = validateTeamRecordData(teamRecordData);
+  const warnings = [...rankValidation.warnings, ...matchValidation.warnings, ...teamRecordValidation.warnings];
 
   return {
     tierName,
@@ -2253,6 +2444,8 @@ function buildDebugReport(tierName, rankData, matchData, finalRows, yapRows, sav
     rankedTeams: rankValidation.rankedCount || 0,
     matchRows: Array.isArray(matchData) ? matchData.length : 0,
     matchups: matchValidation.matchupCount || 0,
+    recordRows: teamRecordValidation.recordRows || 0,
+    recordsFound: teamRecordValidation.recordsWithRecord || 0,
     powerArticleRows: countFinalColumnNRows(finalRows),
     predictionArticleRows: countFinalColumnNRows(yapRows),
     warnings
@@ -2276,6 +2469,8 @@ function updateDebugPanel(report) {
       <div><span>Ranked teams</span><strong>${report.rankedTeams}</strong></div>
       <div><span>Prediction rows</span><strong>${report.matchRows}</strong></div>
       <div><span>Matchups</span><strong>${report.matchups}</strong></div>
+      <div><span>Record rows</span><strong>${report.recordRows}</strong></div>
+      <div><span>Records found</span><strong>${report.recordsFound}</strong></div>
       <div><span>Power article rows</span><strong>${report.powerArticleRows}</strong></div>
       <div><span>Prediction article rows</span><strong>${report.predictionArticleRows}</strong></div>
     </div>
@@ -2283,13 +2478,13 @@ function updateDebugPanel(report) {
   `;
 }
 
-function renderTierData(tierName, rankData, matchData, finalRows = [], yapRows = [], savedAt) {
-  const debugReport = buildDebugReport(tierName, rankData, matchData, finalRows, yapRows, savedAt);
+function renderTierData(tierName, rankData, matchData, finalRows = [], yapRows = [], teamRecordData = [], savedAt) {
+  const debugReport = buildDebugReport(tierName, rankData, matchData, finalRows, yapRows, teamRecordData, savedAt);
   updateDebugPanel(debugReport);
 
-  buildPowerCards(rankData);
+  buildPowerCards(rankData, teamRecordData);
   buildMatchCards(matchData);
-  buildArticleView(rankData, finalRows);
+  buildArticleView(rankData, finalRows, teamRecordData);
   buildPredictionsArticleView(matchData, yapRows);
 
   const message = savedAt
@@ -2331,7 +2526,7 @@ async function loadTier(tierName, forceFresh = false) {
 await prepareTeamAssets(saved.rankData, saved.matchData);
 await loadPlayerProfileNames();
 
-renderTierData(tierName, saved.rankData, saved.matchData, saved.finalRows || [], saved.yapRows || [], saved.savedAt);
+renderTierData(tierName, saved.rankData, saved.matchData, saved.finalRows || [], saved.yapRows || [], saved.teamRecordData || [], saved.savedAt);
 return;
       }
     }
@@ -2355,6 +2550,7 @@ const rankData = await fetchSheetData(
 let matchData = [];
 let finalRows = [];
 let yapRows = [];
+let teamRecordData = [];
 
 try {
   matchData = await fetchSheetData(
@@ -2388,16 +2584,23 @@ try {
   yapRows = [];
 }
 
+try {
+  teamRecordData = await fetchTeamRecordData(tierName);
+} catch (err) {
+  console.warn(`${tierName} team records failed to load. Record boxes will be blank.`, err);
+  teamRecordData = [];
+}
+
     document.getElementById("status").innerText = `Loading ${tierName} logos...`;
 
 await prepareTeamAssets(rankData, matchData);
 await loadPlayerProfileNames();
 
-saveTierData(tierName, rankData, matchData, finalRows, yapRows);
-renderTierData(tierName, rankData, matchData, finalRows, yapRows, new Date().toISOString());
+saveTierData(tierName, rankData, matchData, finalRows, yapRows, teamRecordData);
+renderTierData(tierName, rankData, matchData, finalRows, yapRows, teamRecordData, new Date().toISOString());
   } catch (err) {
     console.error("LOAD ERROR:", err);
-    document.getElementById("status").innerText = `Failed to load ${tierName}: ${err.message}`;
+    document.getElementById("status").innerText = `Failed to load ${tierName}: ${getSafeErrorMessage(err)}`;
   }
 }
 
@@ -2412,7 +2615,7 @@ async function updateGraphicsFromSheets() {
     await loadTier(currentTier, true);
   } catch (err) {
     console.error("UPDATE ERROR:", err);
-    document.getElementById("status").innerText = `Update failed: ${err.message}`;
+    document.getElementById("status").innerText = `Update failed: ${getSafeErrorMessage(err)}`;
   }
 }
 
@@ -2427,7 +2630,7 @@ async function init() {
     await loadTier(currentTier, false);
   } catch (err) {
     console.error("CONFIG LOAD ERROR:", err);
-    document.getElementById("status").innerText = `Failed to load tier config: ${err.message}`;
+    document.getElementById("status").innerText = `Failed to load tier config: ${getSafeErrorMessage(err)}`;
   }
 }
 
