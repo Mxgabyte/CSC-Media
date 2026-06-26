@@ -3,7 +3,7 @@ const PICKS_TAB = "Picks/Records";
 const FINAL_TAB = "Final";
 const PREDICTION_FINAL_TAB = "Final";
 
-const LOGO_FOLDER = "logos";
+const LOGO_FOLDER = "Logos";
 const LOGO_EXTENSION = "png";
 
 const logosURL = "https://opensheet.elk.sh/1vx2l-UI_eUlrz8b6f3vca24tUAfqO5w8_kmZsHxVSmw/logos";
@@ -44,6 +44,30 @@ const TEAM_RECORDS_SHEET_URL = "https://docs.google.com/spreadsheets/d/1nioy7RQU
 const TEAM_RECORDS_TAB_FALLBACKS = {
   Premier: ["Premier", "Master"],
   Master: ["Master", "Premier"]
+};
+
+// Optional map for full franchise names in the standings sheet.
+// Left side = the exact/full franchise name after normalizing spaces/case.
+// Right side = the abbreviation used by the Power Rankings and logo files.
+// Add more here if Column A uses full names instead of abbreviations.
+const FRANCHISE_CODE_ALIASES = {
+  "NA NADES": "NAN",
+  "ALL GOOD": "AG",
+  "GONE FISHIN'": "GF",
+  "GONE FISHIN": "GF",
+  "GONE FISHING": "GF",
+  "KINGSNAKES": "BOA",
+  "AUTOMATA": "ATO",
+  "THE BEACH": "BCH",
+  "BEACH": "BCH",
+  "THE 19TH HOLE": "TEE",
+  "19TH HOLE": "TEE",
+  "FINAL GIRL": "FNL",
+  "THE TOAD-EM POLE": "FRG",
+  "TOAD-EM POLE": "FRG",
+  "THE TOADEM POLE": "FRG",
+  "TOADEM POLE": "FRG",
+  "WHAT DO YOU BEEF": "COW"
 };
 
 let TIER_CONFIG = {};

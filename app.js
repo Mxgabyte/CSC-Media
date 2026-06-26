@@ -257,18 +257,134 @@ function normalizeTeamKey(value) {
   return String(value || "").trim().toUpperCase();
 }
 
+function normalizeFranchiseLookupKey(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toUpperCase();
+}
+
+function getFranchiseAliasMap() {
+  if (typeof FRANCHISE_CODE_ALIASES === "undefined" || !FRANCHISE_CODE_ALIASES) {
+    return {};
+  }
+
+  return FRANCHISE_CODE_ALIASES;
+}
+
+function resolveFranchiseCode(franchiseName, explicitCode = "") {
+  const directCode = normalizeTeamKey(explicitCode);
+
+  if (directCode) return directCode;
+
+  const rawKey = normalizeFranchiseLookupKey(franchiseName);
+  if (!rawKey) return "";
+
+  const aliasMap = getFranchiseAliasMap();
+  const matchedAliasKey = Object.keys(aliasMap).find(aliasName =>
+    normalizeFranchiseLookupKey(aliasName) === rawKey
+  );
+
+  if (matchedAliasKey) {
+    return normalizeTeamKey(aliasMap[matchedAliasKey]);
+  }
+
+  // If Column A is still an abbreviation, keep it as-is.
+  if (/^[A-Z0-9]{2,6}$/.test(rawKey)) {
+    return rawKey;
+  }
+
+  // Full names should not be treated as real logo/ranking codes. Returning
+  // blank here prevents row-order fallback from attaching the wrong logo to
+  // the wrong standings row.
+  return "";
+}
+
+function strippedFranchiseText(value) {
+  return normalizeFranchiseLookupKey(value).replace(/[^A-Z0-9]/g, "");
+}
+
+function franchiseInitialVariants(value) {
+  const words = normalizeFranchiseLookupKey(value)
+    .split(/[^A-Z0-9]+/)
+    .filter(Boolean);
+
+  if (!words.length) return [];
+
+  const variants = new Set();
+  variants.add(words.map(word => word[0]).join(""));
+  variants.add(words.map(word => word.slice(0, 1)).join(""));
+
+  if (words.length > 1) {
+    variants.add(words[0] + words.slice(1).map(word => word[0]).join(""));
+    variants.add(words[0].slice(0, 2) + words.slice(1).map(word => word[0]).join(""));
+    variants.add(words.map(word => word.slice(0, 2)).join(""));
+  }
+
+  variants.add(words.join(""));
+
+  return Array.from(variants).filter(Boolean);
+}
+
+function codeIsSubsequence(code, text) {
+  let cursor = 0;
+
+  for (const char of text) {
+    if (char === code[cursor]) cursor++;
+    if (cursor >= code.length) return true;
+  }
+
+  return false;
+}
+
+function guessFranchiseCode(franchiseName, knownCodes = []) {
+  const cleanKnownCodes = [...new Set((knownCodes || []).map(normalizeTeamKey).filter(Boolean))];
+  const stripped = strippedFranchiseText(franchiseName);
+  const variants = franchiseInitialVariants(franchiseName).map(strippedFranchiseText);
+
+  if (!stripped || !cleanKnownCodes.length) return "";
+
+  const matches = cleanKnownCodes.filter(code => {
+    const cleanCode = strippedFranchiseText(code);
+    if (!cleanCode) return false;
+
+    return (
+      variants.includes(cleanCode) ||
+      stripped === cleanCode ||
+      stripped.startsWith(cleanCode) ||
+      (cleanCode.length >= 3 && codeIsSubsequence(cleanCode, stripped))
+    );
+  });
+
+  return matches.length === 1 ? matches[0] : "";
+}
+
 function getTierRecordTabs(tierName) {
   const configuredFallbacks = (TEAM_RECORDS_TAB_FALLBACKS && TEAM_RECORDS_TAB_FALLBACKS[tierName]) || [];
   return [...new Set([tierName, ...configuredFallbacks])].filter(Boolean);
 }
 
 function getTeamRecordFromRow(row) {
-  const franchise = normalizeTeamKey(getRowValueLoose(row, [
+  const franchiseDisplay = String(getRowValueLoose(row, [
     "Franchise",
     "Franchise Name",
     "Team",
     "Teams"
-  ], 0));
+  ], 0) || "").trim();
+
+  const explicitCode = String(getRowValueLoose(row, [
+    "Franchise Code",
+    "Franchise Abbreviation",
+    "Franchise Abbreviations",
+    "Abbreviation",
+    "Abbreviations",
+    "Code",
+    "Franchise ID",
+    "ID"
+  ], 3) || "").trim();
+
+  const franchise = resolveFranchiseCode(franchiseDisplay, explicitCode);
+  const franchiseRawKey = normalizeFranchiseLookupKey(franchiseDisplay);
 
   const teamName = String(getRowValueLoose(row, [
     "Team Name",
@@ -285,16 +401,46 @@ function getTeamRecordFromRow(row) {
     "Wins-Losses"
   ], 2) || "").trim();
 
-  return { franchise, teamName, record };
+  const lookupKeys = [...new Set([
+    franchise,
+    normalizeTeamKey(explicitCode),
+    franchiseRawKey
+  ].filter(Boolean))];
+
+  return {
+    franchise,
+    franchiseDisplay,
+    franchiseRawKey,
+    teamName,
+    record,
+    lookupKeys
+  };
 }
 
-function buildTeamRecordMap(teamRecordData = []) {
+function buildTeamRecordMap(teamRecordData = [], rankData = []) {
   const map = {};
+  const knownCodes = [...new Set((rankData || [])
+    .map(row => String(row.Teams || row.Team || "").trim().toUpperCase())
+    .filter(Boolean))];
 
   (teamRecordData || []).forEach(row => {
     const recordModel = getTeamRecordFromRow(row);
-    if (!recordModel.franchise) return;
-    map[recordModel.franchise] = recordModel;
+    if (!recordModel.franchise && !recordModel.franchiseRawKey) return;
+
+    const guessedCode = recordModel.franchise
+      || guessFranchiseCode(recordModel.franchiseDisplay, knownCodes);
+
+    const lookupKeys = [...new Set([
+      guessedCode,
+      ...recordModel.lookupKeys
+    ].map(normalizeTeamKey).filter(Boolean))];
+
+    lookupKeys.forEach(key => {
+      // Never let a full-name/raw key overwrite a real abbreviation key.
+      if (!map[key] || key === guessedCode) {
+        map[key] = recordModel;
+      }
+    });
   });
 
   return map;
@@ -392,12 +538,12 @@ function openSheetURL(sheetId, tabName) {
 }
 
 function localLogoPath(team) {
-  const key = String(team || "").trim().toLowerCase();
+  const key = String(team || "").trim().toUpperCase();
   return `${LOGO_FOLDER}/${key}.${LOGO_EXTENSION}`;
 }
 
 function tierCacheKey(tierName) {
-  return `csc_article_generator_saved_data_v4_${tierName}`;
+  return `csc_article_generator_saved_data_v8_${tierName}`;
 }
 
 function saveTierData(tierName, rankData, matchData, finalRows = [], yapRows = [], teamRecordData = []) {
@@ -1442,6 +1588,7 @@ function getPowerCardModel(row, index, idPrefix = "power", teamRecordMap = {}) {
   return {
     team,
     teamName: teamRecord.teamName || "",
+    franchiseName: teamRecord.franchiseDisplay || "",
     record: teamRecord.record || "",
     style,
     currentRank,
@@ -1491,8 +1638,8 @@ function buildPowerCardHTML(row, index, options = {}) {
 
       <div class="power-content">
         <div class="power-title-block">
-          <div class="power-team-name">${escapeHTML(model.team)}</div>
-          ${model.teamName ? `<div class="power-team-subtitle">${escapeHTML(model.teamName)}</div>` : ""}
+          <div class="power-team-name">${escapeHTML(model.teamName || model.team)}</div>
+          ${model.franchiseName ? `<div class="power-team-subtitle">${escapeHTML(model.franchiseName)}</div>` : ""}
         </div>
 
         <div class="power-stats-line">
@@ -1531,7 +1678,7 @@ function buildPowerCards(data, teamRecordData = []) {
   const gallery = document.getElementById("powerGallery");
   gallery.innerHTML = "";
 
-  const teamRecordMap = buildTeamRecordMap(teamRecordData);
+  const teamRecordMap = buildTeamRecordMap(teamRecordData, data);
 
   getSortedPowerData(data).forEach((row, index) => {
     const team = String(row.Teams || row.Team || "").trim().toUpperCase();
@@ -1582,7 +1729,6 @@ function buildArticleView(rankData, finalRows, teamRecordData = []) {
   gallery.innerHTML = "";
   currentArticleTextBlocks = [];
 
-  const finalColumnNSections = getFinalColumnNSections(finalRows || []);
   const sortedData = getSortedPowerData(rankData).reverse();
   const teamRecordMap = buildTeamRecordMap(teamRecordData);
 
@@ -1608,9 +1754,9 @@ function buildArticleView(rankData, finalRows, teamRecordData = []) {
       "Ranking"
     ]));
 
-    const finalText = finalColumnNSections[Number(finalRank) - 1] || "";
+    const finalText = getPowerFinalTextForTeam(finalRows || [], team, finalRank, index, sortedData.length);
 	const cleanFinalText = removeRankTitleLine(finalText);
-    const fallbackText = `Rank ${finalRank || ""}: ${team}\nNo writeups found in Final column N for this row.`.trim();
+    const fallbackText = `Rank ${finalRank || ""}: ${team}\nNo writeups found for this team after checking Final column N.`.trim();
     const copyText = cleanFinalText || fallbackText;
     const copyIndex = currentArticleTextBlocks.length;
     currentArticleTextBlocks.push(copyText);
@@ -1618,7 +1764,7 @@ function buildArticleView(rankData, finalRows, teamRecordData = []) {
     const titleLine = firstNonEmptyLine(finalText) || `Rank ${finalRank}: ${team}`;
     const blurbsHTML = finalTextToArticleHTML(
 	   cleanFinalText,
-      `No writeups found in Final column N row ${finalRank} for ${team}.`
+      `No writeups found for ${team} after checking Final column N.`
     );
 
     const item = document.createElement("div");
@@ -2022,14 +2168,115 @@ function getRawCell(row, index) {
   return String((row || [])[index] || "").trim();
 }
 
+function looksLikeArticleHeaderOnly(value) {
+  const clean = String(value || "").trim().toLowerCase();
+  return ["article", "writeup", "write up", "write-up", "final", "column n"].includes(clean);
+}
+
+function getLikelyFinalArticleCell(row) {
+  const cells = Array.isArray(row)
+    ? row.map(cell => String(cell || "").trim())
+    : Object.values(row || {}).map(cell => String(cell || "").trim());
+
+  if (!cells.length) return "";
+
+  // Best path: when CSV works, preserve the true Column N position.
+  const columnNValue = String(cells[13] || "").trim();
+  if (columnNValue && !looksLikeArticleHeaderOnly(columnNValue)) {
+    return columnNValue;
+  }
+
+  // GitHub Pages/file:// can force the Google CSV request to fail CORS, which means
+  // the OpenSheet fallback may return only populated cells and lose the true Column N index.
+  // In that case, pick the cell that looks most like the article/writeup text.
+  const usableCells = cells.filter(cell => cell && !looksLikeArticleHeaderOnly(cell));
+  if (!usableCells.length) return "";
+
+  const rankSection = usableCells.find(cell =>
+    /^Rank\s*#?\s*\d+\s*:/i.test(firstNonEmptyLine(cell)) ||
+    /^Rank\s*#?\s*\d+\s*:/i.test(cell)
+  );
+  if (rankSection) return rankSection;
+
+  const matchupSection = usableCells.find(cell =>
+    /\bvs\b/i.test(firstNonEmptyLine(cell)) && cell.length > 12
+  );
+  if (matchupSection) return matchupSection;
+
+  const multilineWriteup = usableCells
+    .filter(cell => /\r?\n/.test(cell) && /:/.test(cell))
+    .sort((a, b) => b.length - a.length)[0];
+  if (multilineWriteup) return multilineWriteup;
+
+  const writerStyle = usableCells
+    .filter(cell => /#\s*\d+\s*:/.test(cell) || /[A-Za-z0-9_ .-]+\s*:/.test(cell))
+    .sort((a, b) => b.length - a.length)[0];
+  if (writerStyle) return writerStyle;
+
+  return usableCells.sort((a, b) => b.length - a.length)[0] || "";
+}
+
 function getFinalColumnNSections(finalRows) {
   return (finalRows || [])
-    .map(row => getRawCell(row, 13))
-    .map(value => String(value || "").trim());
+    .map(row => getLikelyFinalArticleCell(row))
+    .map(value => String(value || "").trim())
+    .filter(value => value && !looksLikeArticleHeaderOnly(value));
 }
 
 function getFinalColumnNText(finalRows, index) {
   return getFinalColumnNSections(finalRows)[index] || "";
+}
+
+function textLooksLikeTeamSection(text, team, finalRank) {
+  const value = String(text || "").trim();
+  if (!value) return false;
+
+  const firstLine = firstNonEmptyLine(value).toUpperCase();
+  const teamKey = String(team || "").trim().toUpperCase();
+  const rankKey = String(finalRank || "").trim().replace("#", "");
+
+  if (!teamKey) return false;
+
+  const hasTeam = firstLine.includes(teamKey) || value.toUpperCase().includes(`: ${teamKey}`);
+  if (!hasTeam) return false;
+
+  if (!rankKey) return true;
+
+  const rankRegex = new RegExp(`\\bRANK\\s*#?\\s*${escapeRegex(rankKey)}\\b`, "i");
+  const hashRegex = new RegExp(`(^|[^0-9])#${escapeRegex(rankKey)}([^0-9]|$)`, "i");
+
+  return rankRegex.test(value) || hashRegex.test(firstLine) || hasTeam;
+}
+
+function getPowerFinalTextForTeam(finalRows, team, finalRank, displayIndex, totalTeams) {
+  const sections = getFinalColumnNSections(finalRows);
+  if (!sections.length) return "";
+
+  const exactMatch = sections.find(text => textLooksLikeTeamSection(text, team, finalRank));
+  if (exactMatch) return exactMatch;
+
+  // Most Final tabs are built in display order, so use the rendered row order first.
+  if (Number.isInteger(displayIndex) && sections[displayIndex]) {
+    return sections[displayIndex];
+  }
+
+  const rankNumber = Number(String(finalRank || "").replace("#", ""));
+
+  // Fallback for Final tabs ordered #1, #2, #3...
+  if (Number.isFinite(rankNumber) && sections[rankNumber - 1]) {
+    return sections[rankNumber - 1];
+  }
+
+  // Fallback for Final tabs ordered worst-to-best.
+  const reverseRankIndex = Number.isFinite(rankNumber) && Number.isFinite(totalTeams)
+    ? totalTeams - rankNumber
+    : -1;
+
+  if (reverseRankIndex >= 0 && sections[reverseRankIndex]) {
+    return sections[reverseRankIndex];
+  }
+
+  return "";
 }
 
 function firstNonEmptyLine(text) {
@@ -2344,7 +2591,7 @@ function setupTierDropdown() {
   select.value = currentTier;
 
   select.onchange = () => {
-    loadTier(select.value, false);
+    loadTier(select.value, true);
   };
 }
 
@@ -2425,10 +2672,7 @@ function validateTeamRecordData(teamRecordData) {
 }
 
 function countFinalColumnNRows(rows) {
-  return (rows || []).filter((row, index) => {
-    if (index === 0) return false;
-    return String(getRawCell(row, 13) || "").trim();
-  }).length;
+  return getFinalColumnNSections(rows || []).length;
 }
 
 function buildDebugReport(tierName, rankData, matchData, finalRows, yapRows, teamRecordData = [], savedAt) {
@@ -2632,6 +2876,916 @@ async function init() {
     console.error("CONFIG LOAD ERROR:", err);
     document.getElementById("status").innerText = `Failed to load tier config: ${getSafeErrorMessage(err)}`;
   }
+}
+
+
+/* =========================
+   CSC MEDIA HUB V2 OVERRIDES
+========================= */
+
+let currentView = "article";
+let currentDebugReport = null;
+let commandIndex = 0;
+
+function normalizeWriterName(value) {
+  return String(value || "")
+    .replace(/\s*#\s*\d+(?:\.\d+)?\s*:?\s*$/i, "")
+    .replace(/:\s*$/, "")
+    .trim();
+}
+
+function getLogoCandidates(team) {
+  const raw = String(team || "").trim();
+  const upper = raw.toUpperCase();
+  const lower = raw.toLowerCase();
+  const folderCandidates = [LOGO_FOLDER, "Logos", "logos"];
+  const keyCandidates = [lower, upper, raw].filter(Boolean);
+  const extCandidates = [LOGO_EXTENSION, String(LOGO_EXTENSION).toUpperCase(), "png", "PNG"];
+  const seen = new Set();
+  const candidates = [];
+
+  folderCandidates.forEach(folder => {
+    keyCandidates.forEach(key => {
+      extCandidates.forEach(ext => {
+        const path = `${folder}/${key}.${ext}`;
+        if (!seen.has(path)) {
+          seen.add(path);
+          candidates.push(path);
+        }
+      });
+    });
+  });
+
+  return candidates;
+}
+
+function localLogoPath(team) {
+  return getLogoCandidates(team)[0];
+}
+
+function handleLogoError(img) {
+  if (!img) return;
+
+  const key = img.getAttribute("data-logo-key") || img.getAttribute("alt") || "";
+  const fallbackClass = img.getAttribute("data-fallback-class") || "power-logo-fallback";
+  const candidates = getLogoCandidates(key);
+  const currentAttempt = Number(img.getAttribute("data-logo-attempt") || "0");
+  const nextAttempt = currentAttempt + 1;
+
+  if (nextAttempt < candidates.length) {
+    img.setAttribute("data-logo-attempt", String(nextAttempt));
+    img.src = candidates[nextAttempt];
+    return;
+  }
+
+  const cleanKey = escapeHTML(String(key || "LOGO").toUpperCase());
+  img.outerHTML = `<div class="${fallbackClass}">${cleanKey}</div>`;
+}
+
+function logo(team, map, fallbackClass = "power-logo-fallback") {
+  const key = String(team || "").trim().toUpperCase();
+  const src = localLogoPath(key);
+
+  return `
+    <img
+      src="${src}"
+      data-logo-key="${escapeHTML(key)}"
+      data-logo-attempt="0"
+      data-fallback-class="${escapeHTML(fallbackClass)}"
+      alt="${escapeHTML(key)} logo"
+      onerror="handleLogoError(this)"
+    >
+  `;
+}
+
+function finalTextToArticleHTML(text, emptyMessage = "No writeup found in the Final tab.") {
+  const paragraphs = String(text || "")
+    .split(/\r?\n+/)
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  if (!paragraphs.length) {
+    return `<div class="article-empty">${escapeHTML(emptyMessage)}</div>`;
+  }
+
+  return paragraphs.map(paragraph => {
+    const parsed = parseWriterBlurb(paragraph);
+
+    if (parsed.writer && parsed.text) {
+      const writer = normalizeWriterName(parsed.writer);
+      const writerLabel = `${escapeHTML(parsed.writer)}${parsed.rank ? ` #${escapeHTML(parsed.rank)}` : ""}`;
+
+      return `
+        <div class="article-blurb" data-writer="${escapeHTML(writer)}">
+          <span class="article-writer">${writerLabel}:</span>
+          ${profileLinkedHTML(parsed.text)}
+        </div>
+      `;
+    }
+
+    return `
+      <div class="article-blurb" data-writer="">
+        ${profileLinkedHTML(paragraph)}
+      </div>
+    `;
+  }).join("");
+}
+
+function setView(view) {
+  currentView = view === "predictionArticle" ? "predictionArticle" : "article";
+
+  const articlePage = document.getElementById("article-page");
+  const predictionPage = document.getElementById("predictionArticle-page");
+  const powerNav = document.getElementById("navPower");
+  const predictionsNav = document.getElementById("navPredictions");
+  const viewTitle = document.getElementById("viewTitle");
+
+  if (articlePage) articlePage.classList.toggle("active", currentView === "article");
+  if (predictionPage) predictionPage.classList.toggle("active", currentView === "predictionArticle");
+  if (powerNav) powerNav.classList.toggle("active", currentView === "article");
+  if (predictionsNav) predictionsNav.classList.toggle("active", currentView === "predictionArticle");
+  if (viewTitle) viewTitle.innerText = currentView === "article" ? "Power Rankings" : "Predictions";
+
+  populateWriterFilter();
+  applyArticleFilters();
+  closeAllSectionMenus();
+}
+
+function getCurrentGalleryId() {
+  return currentView === "article" ? "articleGallery" : "predictionArticleGallery";
+}
+
+function getCurrentGallery() {
+  return document.getElementById(getCurrentGalleryId());
+}
+
+function getCurrentTextBlocks() {
+  return currentView === "article" ? currentArticleTextBlocks : currentPredictionArticleTextBlocks;
+}
+
+function createSectionHeader({ kicker, title, meta, copyIndex }) {
+  return `
+    <div class="article-section-header" onclick="toggleArticleItem(this)">
+      <div>
+        <div class="section-kicker">${escapeHTML(kicker)}</div>
+        <div class="section-title">${escapeHTML(title)}</div>
+        ${meta ? `<div class="section-meta">${escapeHTML(meta)}</div>` : ""}
+      </div>
+      <div class="section-header-actions" onclick="event.stopPropagation()">
+        <span class="match-count-pill">${escapeHTML(currentTier)}</span>
+        <button class="article-section-toggle" onclick="toggleArticleItem(this.closest('.article-section-header'))">⌄</button>
+        <button class="section-menu-trigger" onclick="toggleSectionMenu(this)">⋮</button>
+        <div class="section-menu">
+          <button onclick="copySectionGraphic(this)">Copy Graphic</button>
+          <button onclick="downloadSectionGraphic(this)">Download PNG</button>
+          <button onclick="copySectionText(${copyIndex}, this)">Copy Text</button>
+          <button onclick="expandThisSection(this)">Expand Only This</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function buildArticleView(rankData, finalRows, teamRecordData = []) {
+  const gallery = document.getElementById("articleGallery");
+  gallery.innerHTML = "";
+  currentArticleTextBlocks = [];
+
+  const sortedData = getSortedPowerData(rankData).reverse();
+  const teamRecordMap = buildTeamRecordMap(teamRecordData, rankData);
+
+  sortedData.forEach((row, index) => {
+    const team = String(row.Teams || row.Team || "").trim().toUpperCase();
+    if (!team) return;
+
+    const finalRank = cleanRankValue(getPowerColumn(row, POWER_COLUMN_HEADERS.currentRank));
+    const finalText = getPowerFinalTextForTeam(finalRows || [], team, finalRank, index, sortedData.length);
+    const cleanFinalText = removeRankTitleLine(finalText);
+    const fallbackText = `Rank ${finalRank || ""}: ${team}\nNo writeups found for this team after checking Final column N.`.trim();
+    const copyText = cleanFinalText || fallbackText;
+    const copyIndex = currentArticleTextBlocks.length;
+    currentArticleTextBlocks.push(copyText);
+
+    const sectionTitle = finalRank ? `#${finalRank} ${team}` : team;
+    const titleLine = firstNonEmptyLine(finalText) || `Rank ${finalRank}: ${team}`;
+    const blurbsHTML = finalTextToArticleHTML(cleanFinalText, `No writeups found for ${team} after checking Final column N.`);
+
+    const item = document.createElement("div");
+    item.className = "article-item";
+    item.dataset.search = `${team} ${titleLine} ${copyText}`.toLowerCase();
+    item.dataset.copyIndex = String(copyIndex);
+    item.innerHTML = `
+      ${createSectionHeader({
+        kicker: "Power Ranking",
+        title: sectionTitle,
+        meta: titleLine,
+        copyIndex
+      })}
+
+      <div class="article-section-body">
+        ${buildPowerArticleGraphicHTML(row, index, teamRecordMap)}
+
+        <div class="article-text-box">
+          ${blurbsHTML}
+        </div>
+      </div>
+    `;
+
+    gallery.appendChild(item);
+  });
+
+  afterArticleRender();
+}
+
+function buildPredictionsArticleView(matchData, yapRows) {
+  const gallery = document.getElementById("predictionArticleGallery");
+  gallery.innerHTML = "";
+  currentPredictionArticleTextBlocks = [];
+
+  if (!Array.isArray(matchData) || !matchData.length) {
+    const blank = document.createElement("div");
+    blank.className = "blank-sheet-card";
+    blank.innerHTML = `
+      <div class="blank-sheet-title">Document Currently Blank</div>
+      <div class="blank-sheet-text">Add matchups to the predictions sheet, then refresh data.</div>
+    `;
+    gallery.appendChild(blank);
+    afterArticleRender();
+    return;
+  }
+
+  const writeups = parsePredictionYapRows(yapRows || [], matchData);
+
+  matchData.forEach((row, index) => {
+    const matchup = getMatchupValue(row);
+    if (!matchup) return;
+
+    const parts = matchup.split(/vs/i).map(t => t.trim().toUpperCase());
+    const a = parts[0];
+    const b = parts[1];
+    if (!a || !b) return;
+
+    const key = normalizeMatchupKey(matchup);
+    const writeup = writeups[key] || "No writeup found in the Final tab.";
+    const copyText = `${a} VS ${b}\n${writeup}`.trim();
+    const copyIndex = currentPredictionArticleTextBlocks.length;
+    currentPredictionArticleTextBlocks.push(copyText);
+
+    const item = document.createElement("div");
+    item.className = "article-item";
+    item.dataset.search = `${a} ${b} ${a} vs ${b} ${writeup}`.toLowerCase();
+    item.dataset.copyIndex = String(copyIndex);
+    item.innerHTML = `
+      ${createSectionHeader({
+        kicker: "Prediction",
+        title: `${a} VS ${b}`,
+        meta: "Matchup article section",
+        copyIndex
+      })}
+
+      <div class="article-section-body">
+        ${buildPredictionArticleGraphicHTML(row, index)}
+
+        <div class="article-text-box">
+          ${predictionArticleTextToHTML(writeup)}
+        </div>
+      </div>
+    `;
+
+    gallery.appendChild(item);
+  });
+
+  afterArticleRender();
+}
+
+function afterArticleRender() {
+  setTimeout(() => {
+    resizeTeamNames();
+    resizeAnalysts();
+    populateWriterFilter();
+    applyArticleFilters();
+  }, 150);
+}
+
+function toggleArticleItem(header) {
+  const item = header?.closest?.(".article-item");
+  if (!item) return;
+
+  item.classList.toggle("collapsed");
+}
+
+function expandThisSection(button) {
+  const item = button?.closest?.(".article-item");
+  const gallery = item?.closest?.(".article-gallery");
+  if (!item || !gallery) return;
+
+  gallery.querySelectorAll(".article-item").forEach(other => {
+    other.classList.toggle("collapsed", other !== item);
+  });
+
+  closeAllSectionMenus();
+  item.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function expandVisibleSections() {
+  const gallery = getCurrentGallery();
+  gallery?.querySelectorAll(".article-item:not(.filtered-out)").forEach(item => item.classList.remove("collapsed"));
+}
+
+function collapseVisibleSections() {
+  const gallery = getCurrentGallery();
+  gallery?.querySelectorAll(".article-item:not(.filtered-out)").forEach(item => item.classList.add("collapsed"));
+}
+
+function toggleSectionMenu(button) {
+  const menu = button?.parentElement?.querySelector?.(".section-menu");
+  if (!menu) return;
+  const shouldOpen = !menu.classList.contains("open");
+  closeAllSectionMenus();
+  menu.classList.toggle("open", shouldOpen);
+}
+
+function closeAllSectionMenus() {
+  document.querySelectorAll(".section-menu.open").forEach(menu => menu.classList.remove("open"));
+}
+
+function getSectionCardFromButton(button) {
+  const item = button?.closest?.(".article-item");
+  if (!item) throw new Error("Article section not found.");
+
+  const card = item.querySelector(".power-card, .match-card");
+  if (!card) throw new Error("Graphic card not found in this section.");
+
+  return { item, card };
+}
+
+async function withItemExpanded(item, callback) {
+  const wasCollapsed = item.classList.contains("collapsed");
+  if (wasCollapsed) item.classList.remove("collapsed");
+
+  try {
+    return await callback();
+  } finally {
+    if (wasCollapsed) item.classList.add("collapsed");
+  }
+}
+
+async function copySectionGraphic(button) {
+  const oldText = button ? button.innerText : "";
+
+  try {
+    const { item, card } = getSectionCardFromButton(button);
+    closeAllSectionMenus();
+
+    await withItemExpanded(item, async () => {
+      await copyCard(card.id, button);
+    });
+  } catch (err) {
+    if (button) button.innerText = oldText;
+    alert("Graphic copy failed: " + getSafeErrorMessage(err));
+  }
+}
+
+async function downloadSectionGraphic(button) {
+  const oldText = button ? button.innerText : "";
+
+  try {
+    const { item, card } = getSectionCardFromButton(button);
+    closeAllSectionMenus();
+    if (button) button.innerText = "Rendering...";
+
+    await withItemExpanded(item, async () => {
+      const canvas = await renderToCanvas(card);
+      downloadCanvasPNG(canvas, `${card.id}.png`);
+    });
+
+    if (button) {
+      button.innerText = "Downloaded";
+      setTimeout(() => button.innerText = oldText, 1300);
+    }
+  } catch (err) {
+    if (button) button.innerText = oldText;
+    alert("PNG download failed: " + getSafeErrorMessage(err));
+  }
+}
+
+async function copySectionText(index, button) {
+  closeAllSectionMenus();
+  return currentView === "article"
+    ? copyTeamArticleText(index, button)
+    : copyPredictionArticleText(index, button);
+}
+
+function collectWritersFromCurrentView() {
+  const gallery = getCurrentGallery();
+  const writers = new Set();
+
+  gallery?.querySelectorAll(".article-blurb[data-writer]").forEach(blurb => {
+    const writer = normalizeWriterName(blurb.dataset.writer || "");
+    if (writer) writers.add(writer);
+  });
+
+  return Array.from(writers).sort((a, b) => a.localeCompare(b));
+}
+
+function populateWriterFilter() {
+  const select = document.getElementById("writerFilter");
+  if (!select) return;
+
+  const oldValue = select.value;
+  const writers = collectWritersFromCurrentView();
+
+  select.innerHTML = `<option value="">All writers</option>` + writers
+    .map(writer => `<option value="${escapeHTML(writer)}">${escapeHTML(writer)}</option>`)
+    .join("");
+
+  if (writers.includes(oldValue)) select.value = oldValue;
+}
+
+function applyArticleFilters() {
+  const gallery = getCurrentGallery();
+  const search = String(document.getElementById("articleSearch")?.value || "").trim().toLowerCase();
+  const writer = String(document.getElementById("writerFilter")?.value || "").trim();
+  let visibleCount = 0;
+
+  gallery?.querySelectorAll(".article-item").forEach(item => {
+    const searchBlob = String(item.dataset.search || item.innerText || "").toLowerCase();
+    const searchMatch = !search || searchBlob.includes(search);
+    item.classList.toggle("filtered-out", !searchMatch);
+    if (searchMatch) visibleCount++;
+
+    item.querySelectorAll(".article-blurb[data-writer]").forEach(blurb => {
+      const blurbWriter = normalizeWriterName(blurb.dataset.writer || "");
+      const writerMatch = !writer || blurbWriter === writer;
+      blurb.dataset.writerHidden = writerMatch ? "false" : "true";
+      blurb.classList.toggle("writer-focused", Boolean(writer && writerMatch));
+    });
+  });
+
+  updateFilterStatus(visibleCount, search, writer);
+}
+
+function updateFilterStatus(visibleCount, search, writer) {
+  const status = document.getElementById("status");
+  if (!status || !currentDebugReport) return;
+
+  const base = currentDebugReport.savedAt
+    ? `${currentTier} loaded from saved data.`
+    : `${currentTier} loaded.`;
+
+  const pieces = [];
+  if (search) pieces.push(`search: ${search}`);
+  if (writer) pieces.push(`writer: ${writer}`);
+
+  if (pieces.length) {
+    status.innerText = `${base} Showing ${visibleCount} section${visibleCount === 1 ? "" : "s"} for ${pieces.join(" + ")}.`;
+  }
+}
+
+function updateOverviewCards(report) {
+  // V2.4: top overview stat cards were removed to keep the article view clean.
+}
+
+function renderTierData(tierName, rankData, matchData, finalRows = [], yapRows = [], teamRecordData = [], savedAt) {
+  const debugReport = buildDebugReport(tierName, rankData, matchData, finalRows, yapRows, teamRecordData, savedAt);
+  debugReport.savedAt = savedAt || "";
+  currentDebugReport = debugReport;
+
+  updateDebugPanel(debugReport);
+  updateOverviewCards(debugReport);
+
+  buildArticleView(rankData, finalRows, teamRecordData);
+  buildPredictionsArticleView(matchData, yapRows);
+
+  const message = savedAt
+    ? `${tierName} loaded from saved data. Last updated: ${formatSavedTime(savedAt)}.`
+    : `${tierName} loaded.`;
+
+  const warningNote = debugReport.warnings.length
+    ? ` ${debugReport.warnings.length} warning${debugReport.warnings.length === 1 ? "" : "s"} in Load Debug.`
+    : "";
+
+  document.getElementById("status").innerText = message + warningNote;
+  setView(currentView);
+}
+
+function setupTierDropdown() {
+  const select = document.getElementById("tierSelect");
+  if (!select) return;
+
+  const orderedTiers = TIER_ORDER.filter(tier => TIER_CONFIG[tier]);
+  const extraTiers = Object.keys(TIER_CONFIG).filter(tier => !orderedTiers.includes(tier));
+  const tiersToShow = [...orderedTiers, ...extraTiers];
+
+  if (!TIER_CONFIG[currentTier]) {
+    currentTier = tiersToShow[0] || currentTier;
+  }
+
+  select.innerHTML = tiersToShow
+    .map(tier => `<option value="${escapeHTML(tier)}">${escapeHTML(tier)}</option>`)
+    .join("");
+
+  select.value = currentTier;
+
+  select.onchange = () => {
+    currentTier = select.value;
+    loadTier(select.value, true);
+  };
+}
+
+async function withExpandedGallery(galleryId, callback) {
+  const gallery = document.getElementById(galleryId);
+  const collapsed = gallery ? Array.from(gallery.querySelectorAll(".article-item.collapsed")) : [];
+  collapsed.forEach(item => item.classList.remove("collapsed"));
+
+  try {
+    return await callback();
+  } finally {
+    collapsed.forEach(item => item.classList.add("collapsed"));
+  }
+}
+
+async function copyFullArticleText(button) {
+  const originalText = button ? button.innerText : "";
+
+  try {
+    const plainText = currentArticleTextBlocks.join("\n\n").trim();
+    if (!plainText) throw new Error("No article text found.");
+
+    const html = await withExpandedGallery("articleGallery", () => buildFullArticleClipboardHTML(button));
+
+    await navigator.clipboard.write([
+      new ClipboardItem({
+        "text/html": new Blob([html], { type: "text/html" }),
+        "text/plain": new Blob([plainText], { type: "text/plain" })
+      })
+    ]);
+
+    if (button) {
+      button.innerText = "Copied!";
+      setTimeout(() => button.innerText = originalText, 1200);
+    }
+  } catch (err) {
+    console.error("ARTICLE COPY ERROR:", err);
+
+    try {
+      const plainText = currentArticleTextBlocks.join("\n\n").trim();
+      if (plainText) await navigator.clipboard.writeText(plainText);
+
+      if (button) {
+        button.innerText = "Copied Text Only";
+        setTimeout(() => button.innerText = originalText, 1600);
+      }
+
+      alert("Full article rich copy failed, so I copied the text only. Error: " + getSafeErrorMessage(err));
+    } catch (fallbackErr) {
+      if (button) button.innerText = originalText;
+      alert("Article copy failed: " + getSafeErrorMessage(err));
+    }
+  }
+}
+
+async function copyFullPredictionArticleText(button) {
+  const originalText = button ? button.innerText : "";
+
+  try {
+    const plainText = currentPredictionArticleTextBlocks.join("\n\n").trim();
+    if (!plainText) throw new Error("No prediction article text found.");
+
+    const html = await withExpandedGallery("predictionArticleGallery", () => buildFullPredictionArticleClipboardHTML(button));
+
+    await navigator.clipboard.write([
+      new ClipboardItem({
+        "text/html": new Blob([html], { type: "text/html" }),
+        "text/plain": new Blob([plainText], { type: "text/plain" })
+      })
+    ]);
+
+    if (button) {
+      button.innerText = "Copied!";
+      setTimeout(() => button.innerText = originalText, 1200);
+    }
+  } catch (err) {
+    console.error("PREDICTION ARTICLE COPY ERROR:", err);
+
+    try {
+      const plainText = currentPredictionArticleTextBlocks.join("\n\n").trim();
+      if (plainText) await navigator.clipboard.writeText(plainText);
+
+      if (button) {
+        button.innerText = "Copied Text Only";
+        setTimeout(() => button.innerText = originalText, 1600);
+      }
+
+      alert("Full prediction article rich copy failed, so I copied the text only. Error: " + getSafeErrorMessage(err));
+    } catch (fallbackErr) {
+      if (button) button.innerText = originalText;
+      alert("Prediction article copy failed: " + getSafeErrorMessage(err));
+    }
+  }
+}
+
+async function runSelectedArticleAction(button) {
+  const select = document.getElementById("copyActionSelect");
+  const action = select ? select.value : "rich";
+
+  if (action === "text") return copyCurrentArticleTextOnly(button);
+  if (action === "discord") return copyCurrentDiscordArticle(button);
+  if (action === "html") return exportCurrentArticleHTML(button);
+
+  return copyCurrentArticleRich(button);
+}
+
+async function copyCurrentArticleRich(button) {
+  return currentView === "article"
+    ? copyFullArticleText(button)
+    : copyFullPredictionArticleText(button);
+}
+
+async function copyCurrentArticleTextOnly(button) {
+  const oldText = button ? button.innerText : "";
+
+  try {
+    const text = getCurrentTextBlocks().join("\n\n").trim();
+    if (!text) throw new Error("No article text found.");
+
+    await navigator.clipboard.writeText(text);
+
+    if (button) {
+      button.innerText = "Copied!";
+      setTimeout(() => button.innerText = oldText, 1200);
+    }
+  } catch (err) {
+    if (button) button.innerText = oldText;
+    alert("Text copy failed: " + getSafeErrorMessage(err));
+  }
+}
+
+function buildDiscordPlainText() {
+  const title = currentView === "article" ? `${currentTier} Power Rankings` : `${currentTier} Predictions`;
+  const divider = "==============================";
+  return `${title}\n${divider}\n\n${getCurrentTextBlocks().join("\n\n")}`.trim();
+}
+
+async function copyCurrentDiscordArticle(button) {
+  const oldText = button ? button.innerText : "";
+
+  try {
+    const text = buildDiscordPlainText();
+    if (!text) throw new Error("No article text found.");
+
+    await navigator.clipboard.writeText(text);
+
+    if (button) {
+      button.innerText = "Copied!";
+      setTimeout(() => button.innerText = oldText, 1200);
+    }
+  } catch (err) {
+    if (button) button.innerText = oldText;
+    alert("Discord copy failed: " + getSafeErrorMessage(err));
+  }
+}
+
+function downloadTextFile(filename, text, mime = "text/plain") {
+  const blob = new Blob([text], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function exportCurrentArticleHTML(button) {
+  const oldText = button ? button.innerText : "";
+
+  try {
+    if (button) button.innerText = "Exporting...";
+
+    const html = currentView === "article"
+      ? await withExpandedGallery("articleGallery", () => buildFullArticleClipboardHTML(button))
+      : await withExpandedGallery("predictionArticleGallery", () => buildFullPredictionArticleClipboardHTML(button));
+
+    const fileName = `${safeName(currentTier)}_${currentView === "article" ? "power_rankings" : "predictions"}_article.html`;
+    downloadTextFile(fileName, html, "text/html");
+
+    if (button) {
+      button.innerText = "Exported";
+      setTimeout(() => button.innerText = oldText, 1400);
+    }
+  } catch (err) {
+    console.error("EXPORT HTML ERROR:", err);
+    const fallback = `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body><pre>${escapeHTML(getCurrentTextBlocks().join("\n\n"))}</pre></body></html>`;
+    downloadTextFile(`${safeName(currentTier)}_${currentView}_article_text_only.html`, fallback, "text/html");
+
+    if (button) {
+      button.innerText = "Exported Text Only";
+      setTimeout(() => button.innerText = oldText, 1600);
+    }
+  }
+}
+
+const commandDefinitions = [
+  { label: "Refresh Data", hint: "Pull the current tier from sheets", action: () => updateGraphicsFromSheets() },
+  { label: "Go to Power Rankings", hint: "Switch to Power Rankings article", action: () => setView("article") },
+  { label: "Go to Predictions", hint: "Switch to Prediction article", action: () => setView("predictionArticle") },
+  { label: "Copy Rich Article", hint: "Copy graphics and article text", action: btn => copyCurrentArticleRich(btn) },
+  { label: "Copy Text Only", hint: "Copy all article text", action: btn => copyCurrentArticleTextOnly(btn) },
+  { label: "Copy Discord Article", hint: "Copy Discord-friendly plain text", action: btn => copyCurrentDiscordArticle(btn) },
+  { label: "Export HTML", hint: "Download the article as an HTML file", action: btn => exportCurrentArticleHTML(btn) },
+  { label: "Expand Visible Sections", hint: "Open every visible section", action: () => expandVisibleSections() },
+  { label: "Collapse Visible Sections", hint: "Close every visible section", action: () => collapseVisibleSections() }
+];
+
+function openCommandPalette() {
+  const palette = document.getElementById("commandPalette");
+  const input = document.getElementById("commandInput");
+  if (!palette || !input) return;
+
+  palette.classList.add("open");
+  palette.setAttribute("aria-hidden", "false");
+  input.value = "";
+  commandIndex = 0;
+  renderCommandPalette();
+  setTimeout(() => input.focus(), 20);
+}
+
+function closeCommandPalette() {
+  const palette = document.getElementById("commandPalette");
+  if (!palette) return;
+  palette.classList.remove("open");
+  palette.setAttribute("aria-hidden", "true");
+}
+
+function getFilteredCommands() {
+  const query = String(document.getElementById("commandInput")?.value || "").trim().toLowerCase();
+
+  if (query.startsWith("search ")) {
+    return [{
+      label: `Search for “${query.slice(7).trim()}”`,
+      hint: "Apply this to the article search box",
+      action: () => {
+        const input = document.getElementById("articleSearch");
+        if (input) input.value = query.slice(7).trim();
+        applyArticleFilters();
+      }
+    }];
+  }
+
+  return commandDefinitions.filter(command => {
+    const blob = `${command.label} ${command.hint}`.toLowerCase();
+    return !query || blob.includes(query);
+  });
+}
+
+function renderCommandPalette() {
+  const list = document.getElementById("commandList");
+  if (!list) return;
+
+  const commands = getFilteredCommands();
+  commandIndex = Math.max(0, Math.min(commandIndex, commands.length - 1));
+
+  list.innerHTML = commands.length
+    ? commands.map((command, index) => `
+      <button class="command-item ${index === commandIndex ? "active" : ""}" onclick="runCommand(${index}, this)">
+        ${escapeHTML(command.label)}
+        <span>${escapeHTML(command.hint)}</span>
+      </button>
+    `).join("")
+    : `<div class="article-empty" style="padding:16px;">No commands found.</div>`;
+}
+
+async function runCommand(index, button) {
+  const commands = getFilteredCommands();
+  const command = commands[index];
+  if (!command) return;
+
+  closeCommandPalette();
+  await command.action(button);
+}
+
+function handleCommandKeydown(event) {
+  const palette = document.getElementById("commandPalette");
+  const isOpen = palette?.classList.contains("open");
+
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+    event.preventDefault();
+    openCommandPalette();
+    return;
+  }
+
+  if (!isOpen) return;
+
+  const commands = getFilteredCommands();
+
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeCommandPalette();
+  } else if (event.key === "ArrowDown") {
+    event.preventDefault();
+    commandIndex = Math.min(commandIndex + 1, commands.length - 1);
+    renderCommandPalette();
+  } else if (event.key === "ArrowUp") {
+    event.preventDefault();
+    commandIndex = Math.max(commandIndex - 1, 0);
+    renderCommandPalette();
+  } else if (event.key === "Enter") {
+    event.preventDefault();
+    runCommand(commandIndex);
+  }
+}
+
+document.addEventListener("click", event => {
+  if (!event.target.closest(".section-header-actions")) {
+    closeAllSectionMenus();
+  }
+
+  if (event.target.id === "commandPalette") {
+    closeCommandPalette();
+  }
+});
+
+// V2.4: command palette keyboard shortcut disabled for a simpler UI.
+
+
+function getVisibleArticleItems(galleryId) {
+  return Array.from(document.querySelectorAll(`#${galleryId} .article-item:not(.filtered-out)`));
+}
+
+async function buildFullArticleClipboardHTML(button) {
+  const articleItems = getVisibleArticleItems("articleGallery");
+
+  if (!articleItems.length) {
+    throw new Error("No visible power article sections found.");
+  }
+
+  const htmlBlocks = [];
+
+  for (let i = 0; i < articleItems.length; i++) {
+    if (button) button.innerText = `Copying ${i + 1}/${articleItems.length}...`;
+
+    const item = articleItems[i];
+    const card = item.querySelector(".power-card");
+    const dataURL = await powerCardToDataURL(card);
+    const textIndex = Number(item.dataset.copyIndex || i);
+    const text = currentArticleTextBlocks[textIndex] || "";
+
+    htmlBlocks.push(`
+      <div style="margin:0 0 34px 0;page-break-inside:avoid;break-inside:avoid;">
+        <img src="${dataURL}" alt="Power ranking graphic" style="display:block;width:900px;max-width:100%;height:auto;margin:0 0 14px 0;border:0;">
+        <div style="font-family:Arial,sans-serif;color:#111827;">
+          ${articlePlainTextToHTML(text)}
+        </div>
+      </div>
+    `);
+  }
+
+  return `
+    <!DOCTYPE html>
+    <html>
+      <head><meta charset="UTF-8"></head>
+      <body>${htmlBlocks.join("")}</body>
+    </html>
+  `;
+}
+
+async function buildFullPredictionArticleClipboardHTML(button) {
+  const articleItems = getVisibleArticleItems("predictionArticleGallery");
+
+  if (!articleItems.length) {
+    throw new Error("No visible prediction article sections found.");
+  }
+
+  const htmlBlocks = [];
+
+  for (let i = 0; i < articleItems.length; i++) {
+    if (button) button.innerText = `Copying ${i + 1}/${articleItems.length}...`;
+
+    const item = articleItems[i];
+    const card = item.querySelector(".match-card");
+    const dataURL = await matchCardToDataURL(card);
+    const textIndex = Number(item.dataset.copyIndex || i);
+    const text = currentPredictionArticleTextBlocks[textIndex] || "";
+
+    htmlBlocks.push(`
+      <div style="margin:0 0 34px 0;page-break-inside:avoid;break-inside:avoid;">
+        <img src="${dataURL}" alt="Prediction graphic" style="display:block;width:900px;max-width:100%;height:auto;margin:0 0 14px 0;border:0;">
+        <div style="font-family:Arial,sans-serif;color:#111827;">
+          ${articlePlainTextToHTML(text)}
+        </div>
+      </div>
+    `);
+  }
+
+  return `
+    <!DOCTYPE html>
+    <html>
+      <head><meta charset="UTF-8"></head>
+      <body>${htmlBlocks.join("")}</body>
+    </html>
+  `;
 }
 
 init();

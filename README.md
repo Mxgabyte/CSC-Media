@@ -1,19 +1,28 @@
-# CSC Graphic Generator Refactor
+# CSC Media Hub V2.6
 
-Open `index.html` from a localhost server or hosted site. Clipboard image copy still needs a secure browser context, but card copy now falls back to downloading a PNG when the clipboard blocks image writes.
+Fixes the standings-to-logo mismatch introduced when standings Column A started using full franchise names instead of abbreviations.
 
-Changed:
-- Split the generator into `index.html`, `styles.css`, `config.js`, and `app.js`.
-- Removed unused color-sheet helper code that referenced an undefined `COLORS_URL`.
-- Consolidated power ranking graphic rendering into one shared builder used by both Power Rankings and Power Article.
-- Added a Load Debug panel with row counts and warnings for missing/blank sheet data.
-- Added PNG download fallback when browser clipboard image copy is blocked.
-- Fixed rich article copy canvas tainting by using safe logo fallbacks during file:// canvas export.
+## What changed in V2.6
 
-Power rankings record update:
-- Added a new team records source in `config.js`: `TEAM_RECORDS_SHEET_URL`.
-- The records sheet expects one worksheet per tier.
-- Column A = Franchise, Column B = Team Name, Column C = Record.
-- Power ranking cards now show the franchise plus the team name underneath.
-- Power ranking cards now show a `CURRENT RECORD` box on the far right when a record is available.
-- Cache key was bumped so the app pulls fresh data instead of using old saved cards without records.
+- Removed unsafe row-order fallback for standings records.
+- The app no longer guesses by row position when it cannot match a franchise.
+- Logo/ranking key stays tied to the abbreviation from the Power Rankings sheet.
+- Team display name, franchise display name, and record still come from the standings sheet.
+- Added stronger alias support in `config.js` for the current standings full franchise names.
+- Added automatic abbreviation guessing for simple full names like `NA Nades` -> `NAN` or `Original Superstars` -> `OS` when the match is unique.
+
+## Best setup
+
+In the standings sheet:
+
+- Column A: Franchise display name, like `NA Nades`
+- Column B: Team name, like `The Decoys`
+- Column C: Record, like `4-4`
+- Optional Column D: Code, like `NAN`
+
+If a logo/team ever fails to match, the cleanest fix is adding Column D with the franchise abbreviation.
+
+
+## V2.7
+- Standings Column D can now be named `Abbreviations` and will be used as the exact franchise/logo code.
+- Cache key bumped so standings changes pull fresh.

@@ -1,49 +1,89 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>CSC Graphic Generator</title>
+<title>CSC Media Hub</title>
 <meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <link rel="stylesheet" href="styles.css" />
 </head>
 
-
 <body>
+<div class="app-shell">
+  <aside class="app-sidebar">
+    <div class="brand-block">
+      <div class="brand-kicker">CSC MEDIA</div>
+      <div class="brand-title">Article Hub</div>
+      <div class="brand-subtitle">Power Rankings + Predictions</div>
+    </div>
 
-<div class="header">CSC GRAPHIC GENERATOR</div>
+    <label class="control-label" for="tierSelect">Tier</label>
+    <select id="tierSelect" class="sidebar-select"></select>
 
-<div class="menu">
-  <div class="tier-control">
-    <span>Tier:</span>
-    <select id="tierSelect"></select>
-  </div>
+    <div class="sidebar-nav" role="tablist" aria-label="Article views">
+      <button id="navPower" class="nav-button active" onclick="setView('article')">Power Rankings</button>
+      <button id="navPredictions" class="nav-button" onclick="setView('predictionArticle')">Predictions</button>
+    </div>
 
-  <button class="active" onclick="showPage('power', this)">Power Rankings</button>
-  <button onclick="showPage('matches', this)">Matchups</button>
-  <button onclick="showPage('article', this)">Power Article</button>
-  <button onclick="showPage('predictionArticle', this)">Prediction Article</button>
+    <div class="sidebar-section">
+      <button class="primary-action" onclick="updateGraphicsFromSheets()">Refresh Data</button>
 
-  <button class="update-graphics-btn" onclick="updateGraphicsFromSheets()">
-    Update Graphics
-  </button>
-</div>
+      <label class="control-label" for="copyActionSelect">Article Action</label>
+      <div class="action-runner">
+        <select id="copyActionSelect" class="sidebar-select">
+          <option value="rich">Copy Rich Article</option>
+          <option value="text">Copy Text Only</option>
+          <option value="discord">Copy Discord Article</option>
+          <option value="html">Export HTML</option>
+        </select>
+        <button class="secondary-action" onclick="runSelectedArticleAction(this)">Run</button>
+      </div>
+    </div>
 
-<div id="status" class="status">Loading graphics...</div>
-<div id="debugPanel" class="debug-panel"></div>
+    <div class="sidebar-section">
+      <label class="control-label" for="articleSearch">Search</label>
+      <input id="articleSearch" class="sidebar-input" type="search" placeholder="Team, writer, matchup..." oninput="applyArticleFilters()" />
 
-<div id="power-page" class="page active">
-  <div id="powerGallery" class="gallery"></div>
-</div>
+      <label class="control-label" for="writerFilter">Writer Focus</label>
+      <select id="writerFilter" class="sidebar-select" onchange="applyArticleFilters()">
+        <option value="">All writers</option>
+      </select>
+    </div>
 
-<div id="matches-page" class="page">
-  <div id="matchGallery" class="gallery"></div>
-</div>
+    <div class="sidebar-section sidebar-small-actions">
+      <button onclick="expandVisibleSections()">Expand Visible</button>
+      <button onclick="collapseVisibleSections()">Collapse Visible</button>
+    </div>
 
-<div id="article-page" class="page">
-  <div id="articleGallery" class="gallery"></div>
-</div>
+    <details class="debug-details" open>
+      <summary>Load Debug</summary>
+      <div id="debugPanel" class="debug-panel"></div>
+    </details>
+  </aside>
 
-<div id="predictionArticle-page" class="page">
-  <div id="predictionArticleGallery" class="gallery"></div>
+  <main class="app-main">
+    <div class="topbar">
+      <div>
+        <div id="viewTitle" class="view-title">Power Rankings</div>
+        <div id="status" class="status">Loading graphics...</div>
+      </div>
+    </div>
+
+    <section id="article-page" class="page active">
+      <div id="articleGallery" class="gallery article-gallery"></div>
+    </section>
+
+    <section id="predictionArticle-page" class="page">
+      <div id="predictionArticleGallery" class="gallery article-gallery"></div>
+    </section>
+
+    <section id="power-page" class="page utility-hidden">
+      <div id="powerGallery" class="gallery"></div>
+    </section>
+
+    <section id="matches-page" class="page utility-hidden">
+      <div id="matchGallery" class="gallery"></div>
+    </section>
+  </main>
 </div>
 
 <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
