@@ -392,7 +392,7 @@ function openSheetURL(sheetId, tabName) {
 }
 
 function localLogoPath(team) {
-  const key = String(team || "").trim().toUpperCase();
+  const key = String(team || "").trim().toLowerCase();
   return `${LOGO_FOLDER}/${key}.${LOGO_EXTENSION}`;
 }
 
