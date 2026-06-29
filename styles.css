@@ -2495,3 +2495,34 @@ body.publish-mode .article-item {
     padding-top: 182px !important;
   }
 }
+
+/* =========================
+   V2.24 MOBILE PUBLISH OVERLAY FIX
+   On mobile, the editor sidebar backdrop was still active in Publish Mode,
+   which made the published page look like it had a gray filter over it.
+========================= */
+body.publish-mode::before,
+body.publish-mode.sidebar-collapsed::before,
+body.publish-mode:not(.sidebar-collapsed)::before,
+body.viewer-only.publish-mode::before,
+body.viewer-only.publish-mode:not(.sidebar-collapsed)::before {
+  content: none !important;
+  display: none !important;
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+body.publish-mode .app-sidebar {
+  display: none !important;
+  transform: translateX(-120%) !important;
+}
+
+body.publish-mode .app-main {
+  position: relative;
+  z-index: 1;
+}
+
+body.publish-mode .publish-viewer-bar {
+  z-index: 1000000 !important;
+}
