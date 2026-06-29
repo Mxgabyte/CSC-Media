@@ -3340,17 +3340,23 @@ function setView(view) {
   const predictionPage = document.getElementById("predictionArticle-page");
   const powerNav = document.getElementById("navPower");
   const predictionsNav = document.getElementById("navPredictions");
+  const publishPowerNav = document.getElementById("publishNavPower");
+  const publishPredictionsNav = document.getElementById("publishNavPredictions");
   const viewTitle = document.getElementById("viewTitle");
 
   if (articlePage) articlePage.classList.toggle("active", currentView === "article");
   if (predictionPage) predictionPage.classList.toggle("active", currentView === "predictionArticle");
   if (powerNav) powerNav.classList.toggle("active", currentView === "article");
   if (predictionsNav) predictionsNav.classList.toggle("active", currentView === "predictionArticle");
+  if (publishPowerNav) publishPowerNav.classList.toggle("active", currentView === "article");
+  if (publishPredictionsNav) publishPredictionsNav.classList.toggle("active", currentView === "predictionArticle");
   if (viewTitle) viewTitle.innerText = currentView === "article" ? "Power Rankings" : "Predictions";
 
+  saveUiPrefs({ currentView });
   populateWriterFilter();
   applyArticleFilters();
   closeAllSectionMenus();
+  window.setTimeout(resizeResponsiveGraphics, 80);
 }
 
 function getCurrentGalleryId() {
@@ -4130,4 +4136,623 @@ async function buildFullPredictionArticleClipboardHTML(button) {
   `;
 }
 
+
+/* =========================
+   V2.14 RESPONSIVE UI OVERRIDES
+========================= */
+const UI_PREFS_KEY = "csc_media_hub_ui_prefs_v214";
+
+function getUiPrefs() {
+  try {
+    return JSON.parse(localStorage.getItem(UI_PREFS_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function saveUiPrefs(nextPrefs = {}) {
+  const prefs = { ...getUiPrefs(), ...nextPrefs };
+  localStorage.setItem(UI_PREFS_KEY, JSON.stringify(prefs));
+}
+
+function updateSidebarButtons() {
+  const collapsed = document.body.classList.contains("sidebar-collapsed");
+  const hideButton = document.getElementById("sidebarHideButton");
+  const openButton = document.getElementById("sidebarOpenButton");
+
+  if (hideButton) hideButton.innerText = collapsed ? "Show Controls" : "Hide Controls";
+  if (openButton) openButton.innerText = collapsed ? "☰ Controls" : "Controls Open";
+}
+
+function toggleSidebar(forceCollapsed) {
+  const nextCollapsed = typeof forceCollapsed === "boolean"
+    ? forceCollapsed
+    : !document.body.classList.contains("sidebar-collapsed");
+
+  document.body.classList.toggle("sidebar-collapsed", nextCollapsed);
+  updateSidebarButtons();
+  saveUiPrefs({ sidebarCollapsed: nextCollapsed });
+
+  window.setTimeout(resizeResponsiveGraphics, 80);
+}
+
+function updateDebugButton() {
+  const enabled = document.body.classList.contains("debug-enabled");
+  const button = document.getElementById("debugToggleButton");
+  const details = document.querySelector(".debug-details");
+
+  if (button) button.innerText = enabled ? "Disable Debug" : "Enable Debug";
+  if (details && enabled) details.open = true;
+}
+
+function toggleDebugPanel(forceEnabled) {
+  const nextEnabled = typeof forceEnabled === "boolean"
+    ? forceEnabled
+    : !document.body.classList.contains("debug-enabled");
+
+  document.body.classList.toggle("debug-enabled", nextEnabled);
+  updateDebugButton();
+  saveUiPrefs({ debugEnabled: nextEnabled });
+}
+
+function loadUiPrefs() {
+  const prefs = getUiPrefs();
+
+  const shouldCollapseSidebar = typeof prefs.sidebarCollapsed === "boolean"
+    ? prefs.sidebarCollapsed
+    : false;
+
+  document.body.classList.toggle("sidebar-collapsed", shouldCollapseSidebar);
+  document.body.classList.toggle("debug-enabled", Boolean(prefs.debugEnabled));
+  updateSidebarButtons();
+  updateDebugButton();
+}
+
+function getAvailableGraphicWidth(card) {
+  const item = card.closest(".article-item");
+  const body = card.closest(".article-section-body");
+  const base = item?.clientWidth || body?.clientWidth || window.innerWidth;
+  return Math.max(260, base - 28);
+}
+
+function resizeResponsiveGraphics() {
+  document.querySelectorAll(".article-section-body .power-card").forEach(card => {
+    const available = getAvailableGraphicWidth(card);
+    const scale = Math.min(.36, Math.max(.10, available / 3000));
+    card.style.setProperty("--power-display-scale", scale.toFixed(4));
+  });
+
+  document.querySelectorAll(".article-section-body .match-card").forEach(card => {
+    const available = getAvailableGraphicWidth(card);
+    const scale = Math.min(.68, Math.max(.18, available / 1500));
+    card.style.setProperty("--match-display-scale", scale.toFixed(4));
+  });
+}
+
+function afterArticleRender() {
+  setTimeout(() => {
+    resizeTeamNames();
+    resizeAnalysts();
+    resizeResponsiveGraphics();
+    populateWriterFilter();
+    applyArticleFilters();
+  }, 150);
+}
+
+window.addEventListener("resize", () => {
+  window.clearTimeout(window.__cscResizeTimer);
+  window.__cscResizeTimer = window.setTimeout(resizeResponsiveGraphics, 90);
+});
+
+
+/* =========================
+   V2.15 PUBLISH / DRAFT FLOW
+========================= */
+const PUBLISH_CACHE_VERSION = "v215";
+
+function tierDraftCacheKey(tierName) {
+  return `csc_media_hub_draft_${PUBLISH_CACHE_VERSION}_${tierName}`;
+}
+
+function tierPublishedCacheKey(tierName) {
+  return `csc_media_hub_published_${PUBLISH_CACHE_VERSION}_${tierName}`;
+}
+
+function normalizeTierPayload(payload) {
+  if (!payload || !Array.isArray(payload.rankData) || !Array.isArray(payload.matchData)) {
+    return null;
+  }
+
+  return {
+    savedAt: payload.savedAt || payload.publishedAt || payload.draftAt || new Date().toISOString(),
+    publishedAt: payload.publishedAt || "",
+    draftAt: payload.draftAt || "",
+    rankData: Array.isArray(payload.rankData) ? payload.rankData : [],
+    matchData: Array.isArray(payload.matchData) ? payload.matchData : [],
+    finalRows: Array.isArray(payload.finalRows) ? payload.finalRows : [],
+    yapRows: Array.isArray(payload.yapRows) ? payload.yapRows : [],
+    teamRecordData: Array.isArray(payload.teamRecordData) ? payload.teamRecordData : []
+  };
+}
+
+function makeTierPayload(rankData, matchData, finalRows = [], yapRows = [], teamRecordData = [], extra = {}) {
+  const now = new Date().toISOString();
+  return normalizeTierPayload({
+    savedAt: extra.savedAt || now,
+    draftAt: extra.draftAt || "",
+    publishedAt: extra.publishedAt || "",
+    rankData,
+    matchData,
+    finalRows,
+    yapRows,
+    teamRecordData
+  });
+}
+
+function saveDraftTierData(tierName, payload) {
+  const normalized = normalizeTierPayload({ ...payload, draftAt: new Date().toISOString() });
+  if (!normalized) return null;
+  localStorage.setItem(tierDraftCacheKey(tierName), JSON.stringify(normalized));
+  return normalized;
+}
+
+function getDraftTierData(tierName) {
+  try {
+    return normalizeTierPayload(JSON.parse(localStorage.getItem(tierDraftCacheKey(tierName)) || "null"));
+  } catch {
+    return null;
+  }
+}
+
+function savePublishedTierData(tierName, payload) {
+  const normalized = normalizeTierPayload({
+    ...payload,
+    publishedAt: new Date().toISOString(),
+    savedAt: payload?.savedAt || new Date().toISOString()
+  });
+  if (!normalized) return null;
+  localStorage.setItem(tierPublishedCacheKey(tierName), JSON.stringify(normalized));
+
+  // Keep the old saved-data cache populated too, so older versions and fallbacks still have data.
+  saveTierData(
+    tierName,
+    normalized.rankData,
+    normalized.matchData,
+    normalized.finalRows,
+    normalized.yapRows,
+    normalized.teamRecordData
+  );
+
+  return normalized;
+}
+
+function getPublishedTierData(tierName) {
+  try {
+    return normalizeTierPayload(JSON.parse(localStorage.getItem(tierPublishedCacheKey(tierName)) || "null"));
+  } catch {
+    return null;
+  }
+}
+
+function isDraftNewerThanPublished(draft, published) {
+  if (!draft) return false;
+  if (!published) return true;
+
+  const draftTime = Date.parse(draft.draftAt || draft.savedAt || "");
+  const publishedTime = Date.parse(published.publishedAt || published.savedAt || "");
+
+  return Number.isFinite(draftTime) && (!Number.isFinite(publishedTime) || draftTime > publishedTime + 1000);
+}
+
+function updatePublishStatus(message = "") {
+  const status = document.getElementById("publishStatus");
+  if (!status) return;
+
+  if (message) {
+    status.innerText = message;
+    return;
+  }
+
+  const published = getPublishedTierData(currentTier);
+  const draft = getDraftTierData(currentTier);
+  const pieces = [];
+
+  pieces.push(published
+    ? `Live: ${formatSavedTime(published.publishedAt || published.savedAt)}`
+    : "Live: not published yet");
+
+  if (draft) {
+    pieces.push(`Draft: ${formatSavedTime(draft.draftAt || draft.savedAt)}`);
+  }
+
+  if (isDraftNewerThanPublished(draft, published)) {
+    pieces.push("Draft is waiting to publish");
+  }
+
+  status.innerText = pieces.join(" • ");
+}
+
+function setPublishButtonsBusy(isBusy, label = "") {
+  const refreshButton = document.getElementById("refreshDraftButton");
+  const publishButton = document.getElementById("publishDraftButton");
+
+  if (refreshButton) {
+    refreshButton.disabled = isBusy;
+    refreshButton.innerText = isBusy && label ? label : "Refresh Draft";
+  }
+
+  if (publishButton) {
+    publishButton.disabled = isBusy;
+  }
+}
+
+async function fetchFreshTierPayload(tierName) {
+  if (!Object.keys(TIER_CONFIG || {}).length) {
+    await loadTierConfig();
+  }
+
+  const tier = TIER_CONFIG[tierName];
+
+  if (!tier) {
+    throw new Error(`Tier not found: ${tierName}`);
+  }
+
+  const rankingsURL = openSheetURL(tier.rankingsId, POWER_TAB);
+  const picksURL = openSheetURL(tier.picksId, PICKS_TAB);
+
+  const rankData = await fetchSheetData(rankingsURL, `${tierName} Power Rankings`);
+
+  let matchData = [];
+  let finalRows = [];
+  let yapRows = [];
+  let teamRecordData = [];
+
+  try {
+    matchData = await fetchSheetData(picksURL, `${tierName} Predictions`);
+  } catch (err) {
+    console.warn(`${tierName} predictions failed to load.`, err);
+    matchData = [];
+  }
+
+  try {
+    finalRows = await fetchRawSheetRows(tier.rankingsId, FINAL_TAB, `${tierName} Final Article Text`);
+  } catch (err) {
+    console.warn(`${tierName} Final tab failed to load.`, err);
+    finalRows = [];
+  }
+
+  try {
+    yapRows = await fetchRawSheetRows(tier.picksId, PREDICTION_FINAL_TAB, `${tierName} Prediction Final Text`);
+  } catch (err) {
+    console.warn(`${tierName} Prediction Final tab failed to load.`, err);
+    yapRows = [];
+  }
+
+  try {
+    teamRecordData = await fetchTeamRecordData(tierName);
+  } catch (err) {
+    console.warn(`${tierName} team records failed to load.`, err);
+    teamRecordData = [];
+  }
+
+  return makeTierPayload(rankData, matchData, finalRows, yapRows, teamRecordData, {
+    savedAt: new Date().toISOString()
+  });
+}
+
+async function renderTierPayload(tierName, payload, modeLabel = "published") {
+  const normalized = normalizeTierPayload(payload);
+  if (!normalized) throw new Error(`No usable ${modeLabel} data for ${tierName}.`);
+
+  currentTier = tierName;
+
+  const select = document.getElementById("tierSelect");
+  if (select) select.value = tierName;
+
+  document.getElementById("powerGallery").innerHTML = "";
+  document.getElementById("matchGallery").innerHTML = "";
+  document.getElementById("articleGallery").innerHTML = "";
+  document.getElementById("predictionArticleGallery").innerHTML = "";
+
+  document.getElementById("status").innerText = `Loading ${tierName} ${modeLabel} data...`;
+
+  await prepareTeamAssets(normalized.rankData, normalized.matchData);
+  await loadPlayerProfileNames();
+
+  renderTierData(
+    tierName,
+    normalized.rankData,
+    normalized.matchData,
+    normalized.finalRows,
+    normalized.yapRows,
+    normalized.teamRecordData,
+    normalized.publishedAt || normalized.savedAt
+  );
+
+  const liveTime = formatSavedTime(normalized.publishedAt || normalized.savedAt);
+  document.getElementById("status").innerText = `${tierName} showing ${modeLabel} data from ${liveTime}.`;
+  updatePublishStatus();
+}
+
+async function loadPublishedTier(tierName) {
+  try {
+    currentTier = tierName;
+
+    const select = document.getElementById("tierSelect");
+    if (select) select.value = tierName;
+
+    const published = getPublishedTierData(tierName);
+
+    if (published) {
+      await renderTierPayload(tierName, published, "published");
+      return;
+    }
+
+    // First-run safety: if the user already had a local saved cache from older versions, treat it as live.
+    const oldSaved = getSavedTierData(tierName);
+    if (oldSaved) {
+      const firstPublished = savePublishedTierData(tierName, oldSaved);
+      await renderTierPayload(tierName, firstPublished, "published");
+      updatePublishStatus(`No V2.15 publish snapshot existed, so your saved ${tierName} data was set as live.`);
+      return;
+    }
+
+    document.getElementById("status").innerText = `No published ${tierName} data found. Pulling first live snapshot...`;
+    const freshPayload = await fetchFreshTierPayload(tierName);
+    const publishedFirstRun = savePublishedTierData(tierName, freshPayload);
+    saveDraftTierData(tierName, freshPayload);
+    await renderTierPayload(tierName, publishedFirstRun, "published");
+    updatePublishStatus(`First ${tierName} snapshot published. Future sheet edits will stay hidden until you publish a draft.`);
+  } catch (err) {
+    console.error("PUBLISHED LOAD ERROR:", err);
+    document.getElementById("status").innerText = `Failed to load ${tierName}: ${getSafeErrorMessage(err)}`;
+    updatePublishStatus(`Failed to load ${tierName}: ${getSafeErrorMessage(err)}`);
+  }
+}
+
+async function refreshDraftFromSheets(button, options = {}) {
+  const oldText = button?.innerText || "";
+
+  try {
+    setPublishButtonsBusy(true, "Refreshing...");
+    document.getElementById("status").innerText = `Refreshing ${currentTier} draft from sheets...`;
+    updatePublishStatus(`Refreshing ${currentTier} draft from sheets...`);
+
+    await loadTierConfig();
+    setupTierDropdown();
+
+    const payload = await fetchFreshTierPayload(currentTier);
+    const draft = saveDraftTierData(currentTier, payload);
+
+    // Keep latest raw data around for compatibility, but do not render it.
+    saveTierData(
+      currentTier,
+      draft.rankData,
+      draft.matchData,
+      draft.finalRows,
+      draft.yapRows,
+      draft.teamRecordData
+    );
+
+    if (options.autoPublishIfMissing && !getPublishedTierData(currentTier)) {
+      const published = savePublishedTierData(currentTier, draft);
+      await renderTierPayload(currentTier, published, "published");
+      updatePublishStatus(`${currentTier} had no live data, so the refreshed draft was published.`);
+      return draft;
+    }
+
+    const draftReport = buildDebugReport(
+      currentTier,
+      draft.rankData,
+      draft.matchData,
+      draft.finalRows,
+      draft.yapRows,
+      draft.teamRecordData,
+      draft.draftAt || draft.savedAt
+    );
+    draftReport.savedAt = draft.draftAt || draft.savedAt;
+    updateDebugPanel(draftReport);
+
+    document.getElementById("status").innerText = `${currentTier} draft refreshed. Current page is still showing the last published data.`;
+    updatePublishStatus(`${currentTier} draft ready from ${formatSavedTime(draft.draftAt || draft.savedAt)}. Hit Publish Draft when you want it live.`);
+
+    return draft;
+  } catch (err) {
+    console.error("DRAFT REFRESH ERROR:", err);
+    document.getElementById("status").innerText = `Draft refresh failed: ${getSafeErrorMessage(err)}`;
+    updatePublishStatus(`Draft refresh failed: ${getSafeErrorMessage(err)}`);
+    return null;
+  } finally {
+    setPublishButtonsBusy(false);
+    if (button && oldText) button.innerText = oldText;
+  }
+}
+
+async function publishDraftData(button) {
+  const oldText = button?.innerText || "";
+
+  try {
+    const draft = getDraftTierData(currentTier);
+
+    if (!draft) {
+      updatePublishStatus(`No ${currentTier} draft is loaded yet. Hit Refresh Draft first.`);
+      document.getElementById("status").innerText = `No ${currentTier} draft is ready to publish.`;
+      return;
+    }
+
+    if (button) button.innerText = "Publishing...";
+    setPublishButtonsBusy(true, "Publishing...");
+
+    const published = savePublishedTierData(currentTier, draft);
+    await renderTierPayload(currentTier, published, "published");
+
+    document.getElementById("status").innerText = `${currentTier} draft published.`;
+    updatePublishStatus(`${currentTier} live data updated at ${formatSavedTime(published.publishedAt || published.savedAt)}.`);
+  } catch (err) {
+    console.error("PUBLISH ERROR:", err);
+    document.getElementById("status").innerText = `Publish failed: ${getSafeErrorMessage(err)}`;
+    updatePublishStatus(`Publish failed: ${getSafeErrorMessage(err)}`);
+  } finally {
+    setPublishButtonsBusy(false);
+    if (button && oldText) button.innerText = oldText;
+  }
+}
+
+
+// Keep the old function name working, but make it respect the new publish flow.
+async function updateGraphicsFromSheets() {
+  return refreshDraftFromSheets(document.getElementById("refreshDraftButton"));
+}
+
+function getConfiguredTiersToShow() {
+  const orderedTiers = TIER_ORDER.filter(tier => TIER_CONFIG[tier]);
+  const extraTiers = Object.keys(TIER_CONFIG).filter(tier => !orderedTiers.includes(tier));
+  const tiersToShow = [...orderedTiers, ...extraTiers];
+
+  if (!TIER_CONFIG[currentTier]) {
+    currentTier = tiersToShow[0] || currentTier;
+  }
+
+  return tiersToShow;
+}
+
+function syncTierSelectValues(tierName) {
+  ["tierSelect", "publishTierSelect"].forEach(id => {
+    const select = document.getElementById(id);
+    if (select && select.value !== tierName) select.value = tierName;
+  });
+}
+
+function setupTierDropdown() {
+  const tiersToShow = getConfiguredTiersToShow();
+  const optionsHTML = tiersToShow
+    .map(tier => `<option value="${escapeHTML(tier)}">${escapeHTML(tier)}</option>`)
+    .join("");
+
+  ["tierSelect", "publishTierSelect"].forEach(id => {
+    const select = document.getElementById(id);
+    if (!select) return;
+
+    select.innerHTML = optionsHTML;
+    select.value = currentTier;
+    select.onchange = () => {
+      currentTier = select.value;
+      syncTierSelectValues(currentTier);
+      loadPublishedTier(currentTier);
+    };
+  });
+}
+
+function getAdminUrlValue() {
+  const params = new URLSearchParams(window.location.search || "");
+  return params.get(typeof ADMIN_UNLOCK_QUERY_PARAM !== "undefined" ? ADMIN_UNLOCK_QUERY_PARAM : "admin");
+}
+
+function isAdminUnlocked() {
+  if (typeof PUBLIC_SITE_DEFAULTS_TO_PUBLISH_MODE === "undefined" || !PUBLIC_SITE_DEFAULTS_TO_PUBLISH_MODE) {
+    return true;
+  }
+
+  const urlValue = getAdminUrlValue();
+  const requiredKey = typeof ADMIN_UNLOCK_KEY !== "undefined" ? String(ADMIN_UNLOCK_KEY || "") : "";
+
+  if (urlValue !== null) {
+    const ok = requiredKey ? urlValue === requiredKey : Boolean(urlValue);
+    if (ok) {
+      try {
+        localStorage.setItem(ADMIN_UNLOCK_STORAGE_KEY || "csc_media_hub_admin_unlocked", "1");
+      } catch {}
+      return true;
+    }
+  }
+
+  try {
+    return localStorage.getItem(ADMIN_UNLOCK_STORAGE_KEY || "csc_media_hub_admin_unlocked") === "1";
+  } catch {
+    return false;
+  }
+}
+
+function isViewerOnlyMode() {
+  return Boolean(typeof PUBLIC_SITE_DEFAULTS_TO_PUBLISH_MODE !== "undefined" && PUBLIC_SITE_DEFAULTS_TO_PUBLISH_MODE && !isAdminUnlocked());
+}
+
+function applyAccessMode() {
+  const viewerOnly = isViewerOnlyMode();
+  document.body.classList.toggle("viewer-only", viewerOnly);
+
+  if (viewerOnly) {
+    document.body.classList.add("publish-mode");
+    saveUiPrefs({ publishMode: true });
+  }
+
+  updatePublishModeButtons();
+}
+
+async function init() {
+  try {
+    document.getElementById("status").innerText = "Loading tier config...";
+
+    await loadTierConfig();
+    setupTierDropdown();
+
+    const prefs = getUiPrefs();
+    if (prefs.currentView) setView(prefs.currentView);
+
+    await loadPublishedTier(currentTier);
+    applyAccessMode();
+  } catch (err) {
+    console.error("CONFIG LOAD ERROR:", err);
+    document.getElementById("status").innerText = `Failed to load tier config: ${getSafeErrorMessage(err)}`;
+  }
+}
+
+function updatePublishModeButtons() {
+  const enabled = document.body.classList.contains("publish-mode");
+  const viewerOnly = document.body.classList.contains("viewer-only");
+  const enterButton = document.getElementById("publishModeButton");
+  const exitButton = document.getElementById("publishModeExitButton");
+
+  if (enterButton) enterButton.innerText = enabled ? "Exit Publish Mode" : "Enter Publish Mode";
+  if (exitButton) exitButton.innerText = viewerOnly ? "" : "Exit Publish Mode";
+}
+
+function togglePublishMode(forceEnabled) {
+  if (isViewerOnlyMode()) {
+    document.body.classList.add("publish-mode", "viewer-only");
+    updatePublishModeButtons();
+    return;
+  }
+
+  const nextEnabled = typeof forceEnabled === "boolean"
+    ? forceEnabled
+    : !document.body.classList.contains("publish-mode");
+
+  document.body.classList.toggle("publish-mode", nextEnabled);
+  saveUiPrefs({ publishMode: nextEnabled });
+  updatePublishModeButtons();
+  closeAllSectionMenus();
+
+  if (nextEnabled) {
+    expandVisibleSections();
+  }
+
+  window.setTimeout(resizeResponsiveGraphics, 100);
+}
+
+function loadPublishPrefs() {
+  const prefs = getUiPrefs();
+  const viewerOnly = isViewerOnlyMode();
+  document.body.classList.toggle("viewer-only", viewerOnly);
+  document.body.classList.toggle("publish-mode", viewerOnly ? true : Boolean(prefs.publishMode));
+
+  if (prefs.currentView) currentView = prefs.currentView === "predictionArticle" ? "predictionArticle" : "article";
+
+  updatePublishModeButtons();
+  updatePublishStatus();
+}
+
+
+loadUiPrefs();
+loadPublishPrefs();
 init();

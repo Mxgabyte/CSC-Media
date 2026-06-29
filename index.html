@@ -10,6 +10,8 @@
 <body>
 <div class="app-shell">
   <aside class="app-sidebar">
+    <button id="sidebarHideButton" class="sidebar-hide-button" onclick="toggleSidebar()">Hide Controls</button>
+
     <div class="brand-block">
       <div class="brand-kicker">CSC MEDIA</div>
       <div class="brand-title">Article Hub</div>
@@ -25,7 +27,12 @@
     </div>
 
     <div class="sidebar-section">
-      <button class="primary-action" onclick="updateGraphicsFromSheets()">Refresh Data</button>
+      <div class="publish-button-row">
+        <button id="refreshDraftButton" class="primary-action" onclick="refreshDraftFromSheets(this)">Refresh Draft</button>
+        <button id="publishDraftButton" class="secondary-action" onclick="publishDraftData(this)">Publish Draft</button>
+      </div>
+      <div id="publishStatus" class="publish-status">Published data will stay live until you publish a refreshed draft.</div>
+      <button id="publishModeButton" class="secondary-action publish-mode-button" onclick="togglePublishMode()">Enter Publish Mode</button>
 
       <label class="control-label" for="copyActionSelect">Article Action</label>
       <div class="action-runner">
@@ -54,7 +61,11 @@
       <button onclick="collapseVisibleSections()">Collapse Visible</button>
     </div>
 
-    <details class="debug-details" open>
+    <div class="sidebar-section">
+      <button id="debugToggleButton" class="debug-toggle-button" onclick="toggleDebugPanel()">Enable Debug</button>
+    </div>
+
+    <details class="debug-details">
       <summary>Load Debug</summary>
       <div id="debugPanel" class="debug-panel"></div>
     </details>
@@ -62,7 +73,8 @@
 
   <main class="app-main">
     <div class="topbar">
-      <div>
+      <button id="sidebarOpenButton" class="sidebar-open-button" onclick="toggleSidebar()">☰ Controls</button>
+      <div class="topbar-title-block">
         <div id="viewTitle" class="view-title">Power Rankings</div>
         <div id="status" class="status">Loading graphics...</div>
       </div>
@@ -85,6 +97,24 @@
     </section>
   </main>
 </div>
+<div id="publishViewerBar" class="publish-viewer-bar" aria-label="Published article navigation">
+  <div class="publish-viewer-brand">
+    <div class="publish-viewer-kicker">CSC MEDIA</div>
+    <div class="publish-viewer-title">Article Hub</div>
+  </div>
+
+  <div class="publish-viewer-controls">
+    <label class="publish-viewer-label" for="publishTierSelect">Tier</label>
+    <select id="publishTierSelect" class="publish-viewer-select"></select>
+
+    <div class="publish-viewer-tabs" role="tablist" aria-label="Published article views">
+      <button id="publishNavPower" class="publish-viewer-tab active" onclick="setView('article')">Power Rankings</button>
+      <button id="publishNavPredictions" class="publish-viewer-tab" onclick="setView('predictionArticle')">Predictions</button>
+    </div>
+  </div>
+</div>
+
+<button id="publishModeExitButton" class="publish-exit-button" onclick="togglePublishMode(false)">Exit Publish Mode</button>
 
 <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
 <script src="config.js"></script>

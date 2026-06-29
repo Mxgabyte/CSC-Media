@@ -123,6 +123,17 @@ let teamColorCache = {};
 let currentArticleTextBlocks = [];
 let currentPredictionArticleTextBlocks = [];
 
+
+// Public viewer/admin mode.
+// Normal visitors are forced into Publish Mode.
+// Open the site with ?admin=1 to unlock the full editor UI.
+// For a light obscurity gate, set ADMIN_UNLOCK_KEY to a custom value and use ?admin=yourKey.
+// This is a UI gate only, not real security, because GitHub Pages serves all code publicly.
+const PUBLIC_SITE_DEFAULTS_TO_PUBLISH_MODE = true;
+const ADMIN_UNLOCK_QUERY_PARAM = "admin";
+const ADMIN_UNLOCK_KEY = "";
+const ADMIN_UNLOCK_STORAGE_KEY = "csc_media_hub_admin_unlocked";
+
 const defaultStyle = {
   primary: "#334155",
   secondary: "#0f172a",
