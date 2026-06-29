@@ -24,7 +24,7 @@ const PLAYER_LIST_FALLBACK_TABS = [
   "PlayerList",
   "Names",
   "Hyperlinks",
-  "Hyperlink ",
+  "Hyperlink",
   "Player Hyperlinks",
   "Player Links",
   "Links",
