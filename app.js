@@ -4655,9 +4655,11 @@ function getConfiguredTiersToShow() {
 }
 
 function syncTierSelectValues(tierName) {
-  ["tierSelect", "publishTierSelect"].forEach(id => {
-    const select = document.getElementById(id);
-    if (select && select.value !== tierName) select.value = tierName;
+  const select = document.getElementById("tierSelect");
+  if (select && select.value !== tierName) select.value = tierName;
+
+  document.querySelectorAll("#publishTierTabs .publish-viewer-tab").forEach(button => {
+    button.classList.toggle("active", button.dataset.tier === tierName);
   });
 }
 
@@ -4667,18 +4669,34 @@ function setupTierDropdown() {
     .map(tier => `<option value="${escapeHTML(tier)}">${escapeHTML(tier)}</option>`)
     .join("");
 
-  ["tierSelect", "publishTierSelect"].forEach(id => {
-    const select = document.getElementById(id);
-    if (!select) return;
-
-    select.innerHTML = optionsHTML;
-    select.value = currentTier;
-    select.onchange = () => {
-      currentTier = select.value;
+  const editorSelect = document.getElementById("tierSelect");
+  if (editorSelect) {
+    editorSelect.innerHTML = optionsHTML;
+    editorSelect.value = currentTier;
+    editorSelect.onchange = () => {
+      currentTier = editorSelect.value;
       syncTierSelectValues(currentTier);
       loadPublishedTier(currentTier);
     };
-  });
+  }
+
+  const publishTabs = document.getElementById("publishTierTabs");
+  if (publishTabs) {
+    publishTabs.innerHTML = tiersToShow.map(tier => `
+      <button
+        type="button"
+        class="publish-viewer-tab ${tier === currentTier ? "active" : ""}"
+        data-tier="${escapeHTML(tier)}"
+        onclick="selectPublishTier('${escapeHTML(tier)}')"
+      >${escapeHTML(tier)}</button>
+    `).join("");
+  }
+}
+
+function selectPublishTier(tierName) {
+  currentTier = tierName;
+  syncTierSelectValues(currentTier);
+  loadPublishedTier(currentTier);
 }
 
 function getAdminUrlValue() {
@@ -4694,21 +4712,16 @@ function isAdminUnlocked() {
   const urlValue = getAdminUrlValue();
   const requiredKey = typeof ADMIN_UNLOCK_KEY !== "undefined" ? String(ADMIN_UNLOCK_KEY || "") : "";
 
-  if (urlValue !== null) {
-    const ok = requiredKey ? urlValue === requiredKey : Boolean(urlValue);
-    if (ok) {
-      try {
-        localStorage.setItem(ADMIN_UNLOCK_STORAGE_KEY || "csc_media_hub_admin_unlocked", "1");
-      } catch {}
-      return true;
-    }
-  }
-
+  // Admin/editor mode should only unlock from the URL.
+  // Do not persist admin access in localStorage, otherwise a public URL can keep showing editor controls
+  // after you previously opened ?admin=1 in the same browser.
   try {
-    return localStorage.getItem(ADMIN_UNLOCK_STORAGE_KEY || "csc_media_hub_admin_unlocked") === "1";
-  } catch {
-    return false;
-  }
+    localStorage.removeItem(ADMIN_UNLOCK_STORAGE_KEY || "csc_media_hub_admin_unlocked");
+  } catch {}
+
+  if (urlValue === null) return false;
+
+  return requiredKey ? urlValue === requiredKey : Boolean(urlValue);
 }
 
 function isViewerOnlyMode() {
