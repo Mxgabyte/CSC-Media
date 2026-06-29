@@ -1989,22 +1989,25 @@ body.publish-mode .page.active {
 }
 
 body.publish-mode .article-gallery {
-  gap: 22px;
+  gap: 26px;
 }
 
 body.publish-mode .article-item {
   width: min(1120px, calc(100vw - 40px));
   margin-left: auto;
   margin-right: auto;
-  border-color: rgba(255,255,255,.10);
-  background: rgba(15,23,42,.36);
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 body.publish-mode .article-section-header {
-  position: relative;
-  top: auto;
-  cursor: default;
-  padding-right: 18px;
+  display: none;
+}
+
+body.publish-mode .article-section-body {
+  display: flex;
 }
 
 body.publish-mode .article-item.collapsed .article-section-body {
@@ -2192,5 +2195,155 @@ body.viewer-only .publish-exit-button {
     flex: 1 1 auto;
     padding: 10px 8px;
     font-size: 13px;
+  }
+}
+
+/* V2.21 publish mode cleanup */
+.publish-viewer-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.publish-viewer-select {
+  min-width: 150px;
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 999px;
+  background: rgba(15,23,42,.94);
+  color: white;
+  padding: 10px 14px;
+  font-weight: 1000;
+  outline: none;
+}
+
+body.publish-mode .article-section-header {
+  display: none !important;
+}
+
+body.publish-mode .article-item {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+/* =========================
+   V2.22 PUBLISH MODE TOP BAR POLISH
+========================= */
+body.publish-mode .publish-viewer-bar {
+  display: flex;
+  position: sticky;
+  top: 0;
+  width: 100%;
+  min-height: 86px;
+  padding: 16px clamp(18px, 4vw, 56px);
+  background:
+    linear-gradient(180deg, rgba(2,6,23,.99), rgba(2,6,23,.94));
+  border-bottom: 1px solid rgba(148,163,184,.20);
+  box-shadow: 0 14px 34px rgba(0,0,0,.28);
+}
+
+body.publish-mode .publish-viewer-brand {
+  min-width: 210px;
+}
+
+body.publish-mode .publish-viewer-kicker {
+  font-size: 13px;
+  letter-spacing: 1.8px;
+  color: rgba(147,197,253,.95);
+}
+
+body.publish-mode .publish-viewer-title {
+  font-size: 26px;
+  line-height: 1.05;
+}
+
+body.publish-mode .publish-viewer-controls {
+  gap: 16px;
+}
+
+body.publish-mode .publish-viewer-label {
+  font-size: 13px;
+  color: rgba(255,255,255,.72);
+}
+
+body.publish-mode .publish-viewer-select {
+  min-width: 210px;
+  min-height: 48px;
+  padding: 0 18px;
+  border-radius: 14px;
+  font-size: 17px;
+  background: rgba(15,23,42,.98);
+  border-color: rgba(147,197,253,.28);
+  box-shadow:
+    0 10px 24px rgba(0,0,0,.22),
+    inset 0 1px 0 rgba(255,255,255,.08);
+}
+
+body.publish-mode .publish-viewer-tab {
+  min-height: 48px;
+  padding: 0 20px;
+  border-radius: 14px;
+  font-size: 16px;
+}
+
+body.publish-mode .app-main {
+  padding-top: 28px;
+}
+
+body.publish-mode .article-gallery {
+  gap: 38px;
+}
+
+body.publish-mode .article-item {
+  margin-bottom: 10px;
+}
+
+@media (max-width: 860px) {
+  body.publish-mode .publish-viewer-bar {
+    position: sticky;
+    min-height: auto;
+    padding: 14px 12px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  body.publish-mode .publish-viewer-brand {
+    min-width: 0;
+    text-align: center;
+  }
+
+  body.publish-mode .publish-viewer-title {
+    font-size: 22px;
+  }
+
+  body.publish-mode .publish-viewer-controls {
+    display: grid;
+    grid-template-columns: 1fr;
+    width: 100%;
+    gap: 10px;
+  }
+
+  body.publish-mode .publish-viewer-label {
+    text-align: center;
+  }
+
+  body.publish-mode .publish-viewer-select,
+  body.publish-mode .publish-viewer-tab {
+    width: 100%;
+    min-height: 48px;
+    font-size: 16px;
+  }
+
+  body.publish-mode .publish-viewer-tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    width: 100%;
+  }
+
+  body.publish-mode .app-main {
+    padding-top: 18px;
   }
 }

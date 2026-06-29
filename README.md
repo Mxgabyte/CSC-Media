@@ -1,10 +1,10 @@
-# CSC Media Hub V2.20
+# CSC Media Hub V2.22
 
-Updates from V2.19:
-- Publish Mode navigation no longer uses dropdowns.
-- Publish Mode now uses clear tier buttons and article buttons.
-- Removed the heavy boxed control styling from the public publish header.
-- Public/non-admin users still cannot exit Publish Mode.
-- Admin/editor URL remains `?admin=1`.
+Changes from V2.21:
+- Publish Mode navigation is now more obvious and fixed at the top of the page.
+- The tier dropdown is larger and easier to find.
+- Power Rankings / Predictions buttons are larger.
+- Publish Mode spacing was tightened so the article content starts cleaner.
+- Mobile Publish Mode top controls stack cleanly and remain readable.
 
-Upload the files in this folder directly to the GitHub repo root.
+Upload the files from this zip directly to the GitHub repo root.

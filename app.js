@@ -4655,11 +4655,9 @@ function getConfiguredTiersToShow() {
 }
 
 function syncTierSelectValues(tierName) {
-  const select = document.getElementById("tierSelect");
-  if (select && select.value !== tierName) select.value = tierName;
-
-  document.querySelectorAll("#publishTierTabs .publish-viewer-tab").forEach(button => {
-    button.classList.toggle("active", button.dataset.tier === tierName);
+  ["tierSelect", "publishTierSelect"].forEach(id => {
+    const select = document.getElementById(id);
+    if (select && select.value !== tierName) select.value = tierName;
   });
 }
 
@@ -4669,34 +4667,18 @@ function setupTierDropdown() {
     .map(tier => `<option value="${escapeHTML(tier)}">${escapeHTML(tier)}</option>`)
     .join("");
 
-  const editorSelect = document.getElementById("tierSelect");
-  if (editorSelect) {
-    editorSelect.innerHTML = optionsHTML;
-    editorSelect.value = currentTier;
-    editorSelect.onchange = () => {
-      currentTier = editorSelect.value;
+  ["tierSelect", "publishTierSelect"].forEach(id => {
+    const select = document.getElementById(id);
+    if (!select) return;
+
+    select.innerHTML = optionsHTML;
+    select.value = currentTier;
+    select.onchange = () => {
+      currentTier = select.value;
       syncTierSelectValues(currentTier);
       loadPublishedTier(currentTier);
     };
-  }
-
-  const publishTabs = document.getElementById("publishTierTabs");
-  if (publishTabs) {
-    publishTabs.innerHTML = tiersToShow.map(tier => `
-      <button
-        type="button"
-        class="publish-viewer-tab ${tier === currentTier ? "active" : ""}"
-        data-tier="${escapeHTML(tier)}"
-        onclick="selectPublishTier('${escapeHTML(tier)}')"
-      >${escapeHTML(tier)}</button>
-    `).join("");
-  }
-}
-
-function selectPublishTier(tierName) {
-  currentTier = tierName;
-  syncTierSelectValues(currentTier);
-  loadPublishedTier(currentTier);
+  });
 }
 
 function getAdminUrlValue() {

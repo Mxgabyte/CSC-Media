@@ -104,17 +104,12 @@
   </div>
 
   <div class="publish-viewer-controls">
-    <div class="publish-viewer-control-group">
-      <div class="publish-viewer-label">Tier</div>
-      <div id="publishTierTabs" class="publish-viewer-tabs publish-tier-tabs" role="tablist" aria-label="Published tiers"></div>
-    </div>
+    <label class="publish-viewer-label" for="publishTierSelect">Tier</label>
+    <select id="publishTierSelect" class="publish-viewer-select"></select>
 
-    <div class="publish-viewer-control-group">
-      <div class="publish-viewer-label">Article</div>
-      <div class="publish-viewer-tabs publish-article-tabs" role="tablist" aria-label="Published article views">
-        <button id="publishNavPower" class="publish-viewer-tab active" onclick="setView('article')">Power Rankings</button>
-        <button id="publishNavPredictions" class="publish-viewer-tab" onclick="setView('predictionArticle')">Predictions</button>
-      </div>
+    <div class="publish-viewer-tabs" role="tablist" aria-label="Published article views">
+      <button id="publishNavPower" class="publish-viewer-tab active" onclick="setView('article')">Power Rankings</button>
+      <button id="publishNavPredictions" class="publish-viewer-tab" onclick="setView('predictionArticle')">Predictions</button>
     </div>
   </div>
 </div>
