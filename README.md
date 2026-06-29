@@ -1,10 +1,12 @@
-# CSC Media Hub V2.22
+# CSC Media Hub V2.23
 
-Changes from V2.21:
-- Publish Mode navigation is now more obvious and fixed at the top of the page.
-- The tier dropdown is larger and easier to find.
-- Power Rankings / Predictions buttons are larger.
-- Publish Mode spacing was tightened so the article content starts cleaner.
-- Mobile Publish Mode top controls stack cleanly and remain readable.
+Fixes Publish Mode navigation placement.
 
-Upload the files from this zip directly to the GitHub repo root.
+## Changes
+- Publish Mode tier/view selector now lives at the true top of the page.
+- The publish selector is fixed to the viewport and no longer appears at the bottom.
+- The selector is larger and easier to use.
+- Public users remain locked in Publish Mode.
+- Section headers stay hidden in Publish Mode.
+
+Upload these files directly to the GitHub repo root.

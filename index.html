@@ -8,6 +8,23 @@
 </head>
 
 <body>
+<div id="publishViewerBar" class="publish-viewer-bar" aria-label="Published article navigation">
+  <div class="publish-viewer-brand">
+    <div class="publish-viewer-kicker">CSC MEDIA</div>
+    <div class="publish-viewer-title">Article Hub</div>
+  </div>
+
+  <div class="publish-viewer-controls">
+    <label class="publish-viewer-label" for="publishTierSelect">Tier</label>
+    <select id="publishTierSelect" class="publish-viewer-select"></select>
+
+    <div class="publish-viewer-tabs" role="tablist" aria-label="Published article views">
+      <button id="publishNavPower" class="publish-viewer-tab active" onclick="setView('article')">Power Rankings</button>
+      <button id="publishNavPredictions" class="publish-viewer-tab" onclick="setView('predictionArticle')">Predictions</button>
+    </div>
+  </div>
+</div>
+
 <div class="app-shell">
   <aside class="app-sidebar">
     <button id="sidebarHideButton" class="sidebar-hide-button" onclick="toggleSidebar()">Hide Controls</button>
@@ -97,23 +114,6 @@
     </section>
   </main>
 </div>
-<div id="publishViewerBar" class="publish-viewer-bar" aria-label="Published article navigation">
-  <div class="publish-viewer-brand">
-    <div class="publish-viewer-kicker">CSC MEDIA</div>
-    <div class="publish-viewer-title">Article Hub</div>
-  </div>
-
-  <div class="publish-viewer-controls">
-    <label class="publish-viewer-label" for="publishTierSelect">Tier</label>
-    <select id="publishTierSelect" class="publish-viewer-select"></select>
-
-    <div class="publish-viewer-tabs" role="tablist" aria-label="Published article views">
-      <button id="publishNavPower" class="publish-viewer-tab active" onclick="setView('article')">Power Rankings</button>
-      <button id="publishNavPredictions" class="publish-viewer-tab" onclick="setView('predictionArticle')">Predictions</button>
-    </div>
-  </div>
-</div>
-
 <button id="publishModeExitButton" class="publish-exit-button" onclick="togglePublishMode(false)">Exit Publish Mode</button>
 
 <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
