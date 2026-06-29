@@ -4248,7 +4248,7 @@ window.addEventListener("resize", () => {
 /* =========================
    V2.15 PUBLISH / DRAFT FLOW
 ========================= */
-const PUBLISH_CACHE_VERSION = "v215";
+const PUBLISH_CACHE_VERSION = "v218";
 
 function tierDraftCacheKey(tierName) {
   return `csc_media_hub_draft_${PUBLISH_CACHE_VERSION}_${tierName}`;
@@ -4332,6 +4332,35 @@ function getPublishedTierData(tierName) {
   } catch {
     return null;
   }
+}
+
+
+function payloadHasUsablePredictions(payload) {
+  const normalized = normalizeTierPayload(payload);
+  if (!normalized) return false;
+
+  return Array.isArray(normalized.matchData) && normalized.matchData.some(row => {
+    try {
+      return Boolean(String(getMatchupValue(row) || "").trim());
+    } catch {
+      return false;
+    }
+  });
+}
+
+function payloadHasUsablePowerData(payload) {
+  const normalized = normalizeTierPayload(payload);
+  if (!normalized) return false;
+
+  return Array.isArray(normalized.rankData) && normalized.rankData.some(row => {
+    const team = String(row?.Teams || row?.Team || "").trim();
+    const rank = String(getPowerColumn(row || {}, POWER_COLUMN_HEADERS.currentRank) || "").trim();
+    return team && rank;
+  });
+}
+
+function payloadHasAnyUsableArticleData(payload) {
+  return payloadHasUsablePowerData(payload) || payloadHasUsablePredictions(payload);
 }
 
 function isDraftNewerThanPublished(draft, published) {
@@ -4483,26 +4512,35 @@ async function loadPublishedTier(tierName) {
 
     const published = getPublishedTierData(tierName);
 
-    if (published) {
+    if (published && payloadHasAnyUsableArticleData(published)) {
+      if (!payloadHasUsablePredictions(published)) {
+        console.warn(`${tierName} published snapshot has no prediction matchups. If Predictions is blank, refresh/publish a new draft.`);
+      }
       await renderTierPayload(tierName, published, "published");
       return;
     }
 
-    // First-run safety: if the user already had a local saved cache from older versions, treat it as live.
+    if (published && !payloadHasAnyUsableArticleData(published)) {
+      console.warn(`${tierName} published snapshot was empty or stale. Ignoring it and pulling a fresh first snapshot.`);
+    }
+
+    // First-run safety: if the user already had a local saved cache from older versions, treat it as live,
+    // but only if it actually has usable article data. Older blank prediction caches caused the public page
+    // to look empty forever.
     const oldSaved = getSavedTierData(tierName);
-    if (oldSaved) {
+    if (oldSaved && payloadHasAnyUsableArticleData(oldSaved)) {
       const firstPublished = savePublishedTierData(tierName, oldSaved);
       await renderTierPayload(tierName, firstPublished, "published");
-      updatePublishStatus(`No V2.15 publish snapshot existed, so your saved ${tierName} data was set as live.`);
+      updatePublishStatus(`No publish snapshot existed, so your saved ${tierName} data was set as live.`);
       return;
     }
 
-    document.getElementById("status").innerText = `No published ${tierName} data found. Pulling first live snapshot...`;
+    document.getElementById("status").innerText = `No usable published ${tierName} data found. Pulling first live snapshot...`;
     const freshPayload = await fetchFreshTierPayload(tierName);
     const publishedFirstRun = savePublishedTierData(tierName, freshPayload);
     saveDraftTierData(tierName, freshPayload);
     await renderTierPayload(tierName, publishedFirstRun, "published");
-    updatePublishStatus(`First ${tierName} snapshot published. Future sheet edits will stay hidden until you publish a draft.`);
+    updatePublishStatus(`First usable ${tierName} snapshot published. Future sheet edits will stay hidden until you publish a draft.`);
   } catch (err) {
     console.error("PUBLISHED LOAD ERROR:", err);
     document.getElementById("status").innerText = `Failed to load ${tierName}: ${getSafeErrorMessage(err)}`;
