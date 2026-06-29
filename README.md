@@ -1,28 +1,31 @@
-# CSC Media Hub V2.6
+# CSC Media Hub V2.9
 
-Fixes the standings-to-logo mismatch introduced when standings Column A started using full franchise names instead of abbreviations.
+Fixes player hyperlink rendering.
 
-## What changed in V2.6
-
-- Removed unsafe row-order fallback for standings records.
-- The app no longer guesses by row position when it cannot match a franchise.
-- Logo/ranking key stays tied to the abbreviation from the Power Rankings sheet.
-- Team display name, franchise display name, and record still come from the standings sheet.
-- Added stronger alias support in `config.js` for the current standings full franchise names.
-- Added automatic abbreviation guessing for simple full names like `NA Nades` -> `NAN` or `Original Superstars` -> `OS` when the match is unique.
-
-## Best setup
-
-In the standings sheet:
-
-- Column A: Franchise display name, like `NA Nades`
-- Column B: Team name, like `The Decoys`
-- Column C: Record, like `4-4`
-- Optional Column D: Code, like `NAN`
-
-If a logo/team ever fails to match, the cleanest fix is adding Column D with the franchise abbreviation.
+## Changes
+- Restored dash-marker hyperlinking for article body text and writer labels.
+- Anything like `Mxgabyte-` links and displays as `Mxgabyte` when the name exists on the hyperlink/player sheet.
+- Names with real hyphens still work, such as `-Cram--` displaying/linking as `-Cram-`.
+- Added support for more hyperlink sheet tab names: Hyperlinks, Player Links, Profiles, CSC Profiles, etc.
+- Added support for URL/link columns if the hyperlink sheet has actual profile URLs.
+- Added `Profile names` count to Load Debug so you can immediately tell if the hyperlink sheet loaded.
+- Bumped cache version to force a fresh pull.
 
 
-## V2.7
-- Standings Column D can now be named `Abbreviations` and will be used as the exact franchise/logo code.
-- Cache key bumped so standings changes pull fresh.
+## V2.10
+- Updated the hyperlink/player sheet to `1TF6C-wP2ZFErV7o7bMF1sH0DFjsBmzMlWdeFYKd9-zo`.
+- Added `External` as an accepted hyperlink/player tab name.
+
+
+## V2.13
+- Fixed prediction article alignment.
+- Prediction writeups now match by the matchup inside the Final column N text instead of blindly using row order.
+- Row-order fallback only applies to writeup cells that do not contain a matchup title.
+
+
+V2.13: Fixed a JavaScript syntax error in the prediction matchup matching function that prevented the site from opening.
+
+
+## V2.13
+- Fixed Final tab row 1 / N1 article text being lost when Google CSV is blocked and OpenSheet treats row 1 as headers.
+- Added Google Visualization JSON fallback with headers=0 so row 1 is preserved.

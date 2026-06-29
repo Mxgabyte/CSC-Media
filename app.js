@@ -57,63 +57,209 @@ async function loadPlayerProfileNames() {
   try {
     const tabsToTry = [...new Set([PLAYER_LIST_TAB, ...PLAYER_LIST_FALLBACK_TABS])];
 
-    let rows = [];
+    let bestEntries = [];
     let loadedTab = "";
+    let loadedRows = 0;
 
     for (const tabName of tabsToTry) {
       try {
         const url = openSheetURL(PLAYER_LIST_SHEET_ID, tabName);
-        rows = await fetchOpenSheetDataOnly(url, `Player Profile Names (${tabName})`);
+        const rows = await fetchSheetData(url, `Player Profile Names (${tabName})`);
 
-        if (Array.isArray(rows) && rows.length) {
+        if (!Array.isArray(rows) || !rows.length) continue;
+
+        const entries = rows
+          .flatMap(row => getPlayerProfileEntriesFromRow_(row))
+          .filter(entry => entry && entry.name);
+
+        console.log(`PLAYER PROFILE TAB CHECK ${tabName}:`, {
+          rows: rows.length,
+          entries: entries.length,
+          sample: entries.slice(0, 5).map(entry => entry.name)
+        });
+
+        // Do not stop just because the tab has rows. Stop when it has usable profile names.
+        if (entries.length > bestEntries.length) {
+          bestEntries = entries;
           loadedTab = tabName;
-          break;
+          loadedRows = rows.length;
         }
+
+        if (entries.length) break;
       } catch (tabErr) {
         console.warn(`Player names tab failed: ${tabName}`, tabErr);
       }
     }
 
-    if (!rows.length) {
-      throw new Error("No player rows loaded from the player list sheet.");
+    if (!bestEntries.length) {
+      throw new Error("No usable player names loaded from the hyperlink/player list sheet.");
     }
 
-    playerProfileNames = rows
-      .map(row => getPlayerNameFromRow_(row))
-      .filter(Boolean);
+    const entryMap = {};
 
-    playerProfileNames = [...new Set(playerProfileNames)]
-      .sort((a, b) => b.length - a.length);
+    bestEntries.forEach(entry => {
+      addPlayerProfileEntry_(entryMap, entry.name, entry.url);
 
-    console.log(`PLAYER PROFILE NAMES LOADED from ${loadedTab}:`, playerProfileNames.length);
+      // If the sheet accidentally includes the marker dash for normal names, support both.
+      // Do not strip names like -Cram- because the dash is part of the actual name.
+      if (entry.name.endsWith("-") && entry.name.indexOf("-") === entry.name.length - 1) {
+        addPlayerProfileEntry_(entryMap, entry.name.slice(0, -1), entry.url);
+      }
+    });
+
+    playerProfileEntries = Object.values(entryMap)
+      .sort((a, b) => b.name.length - a.name.length);
+
+    playerProfileNames = playerProfileEntries.map(entry => entry.name);
+    playerProfileUrlMap = {};
+    playerProfileEntries.forEach(entry => {
+      playerProfileUrlMap[normalizeProfileNameKey_(entry.name)] = entry.url || profileUrlForName_(entry.name);
+    });
+
+    console.log(`PLAYER PROFILE NAMES LOADED from ${loadedTab}:`, {
+      rows: loadedRows,
+      names: playerProfileNames.length,
+      sample: playerProfileNames.slice(0, 12)
+    });
   } catch (err) {
     console.warn("Player profile names failed to load. Article links will not be created.", err);
     playerProfileNames = [];
+    playerProfileEntries = [];
+    playerProfileUrlMap = {};
   }
 }
 
-function getPlayerNameFromRow_(row) {
+function normalizeProfileNameKey_(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function cleanProfileNameCandidate_(value) {
+  let text = String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!text) return "";
+
+  // Ignore obvious headers, records, team names, or URLs.
+  const normalized = normalizeHeaderName(text);
+  const blocked = [
+    "name", "player", "players", "username", "handle", "alias", "aliases",
+    "url", "link", "profile", "hyperlink", "record", "team", "teams", "franchise"
+  ];
+
+  if (blocked.includes(normalized)) return "";
+  if (/^https?:\/\//i.test(text)) return "";
+  if (/^www\./i.test(text)) return "";
+  if (/^\d+[-–]\d+$/.test(text)) return "";
+  if (text.length > 64) return "";
+
+  return text;
+}
+
+function cleanProfileUrlCandidate_(value) {
+  const text = String(value || "").trim();
+
+  if (!text) return "";
+  if (/^https?:\/\//i.test(text)) return text;
+
+  return "";
+}
+
+function extractProfileNameFromUrl_(url) {
+  const text = String(url || "").trim();
+  if (!text) return "";
+
+  const match = text.match(/(?:stats\/profile\/|profile\/)([^/?#]+)/i);
+  if (!match) return "";
+
+  try {
+    return decodeURIComponent(match[1]).trim();
+  } catch {
+    return match[1].trim();
+  }
+}
+
+function profileUrlForName_(profileName) {
+  return PROFILE_BASE_URL + encodeURIComponent(profileName);
+}
+
+function addPlayerProfileEntry_(entryMap, name, url = "") {
+  const cleanName = cleanProfileNameCandidate_(name);
+  if (!cleanName) return;
+
+  const key = normalizeProfileNameKey_(cleanName);
+  if (!key) return;
+
+  const cleanUrl = cleanProfileUrlCandidate_(url) || profileUrlForName_(cleanName);
+
+  if (!entryMap[key]) {
+    entryMap[key] = {
+      name: cleanName,
+      url: cleanUrl
+    };
+    return;
+  }
+
+  // Prefer an actual sheet URL over the generated profile URL when available.
+  if (cleanUrl && cleanUrl !== profileUrlForName_(cleanName)) {
+    entryMap[key].url = cleanUrl;
+  }
+}
+
+function getLooseRowValue_(row, possibleHeaders) {
   if (!row) return "";
 
-  for (const header of PLAYER_LIST_NAME_HEADERS) {
-    const actualKey = Object.keys(row).find(key =>
-      normalizeHeaderName(key) === normalizeHeaderName(header)
-    );
+  const actualKey = Object.keys(row).find(key =>
+    possibleHeaders.some(header => normalizeHeaderName(key) === normalizeHeaderName(header))
+  );
 
-    if (actualKey && String(row[actualKey] || "").trim()) {
-      return String(row[actualKey]).trim();
-    }
+  return actualKey ? row[actualKey] : "";
+}
+
+function getPlayerProfileEntriesFromRow_(row) {
+  if (!row) return [];
+
+  const values = Object.values(row).map(value => String(value || "").trim());
+  const entries = [];
+
+  const explicitName = cleanProfileNameCandidate_(getLooseRowValue_(row, PLAYER_LIST_NAME_HEADERS));
+  const explicitUrl = cleanProfileUrlCandidate_(getLooseRowValue_(row, PLAYER_LIST_URL_HEADERS));
+
+  if (explicitName) {
+    entries.push({ name: explicitName, url: explicitUrl });
   }
 
-  const values = Object.values(row);
-
-  // Fallback to column B.
-  if (values[PLAYER_LIST_COLUMN_INDEX] && String(values[PLAYER_LIST_COLUMN_INDEX]).trim()) {
-    return String(values[PLAYER_LIST_COLUMN_INDEX]).trim();
+  // Column B fallback, because the original hyperlink sheet uses B for names.
+  const columnBName = cleanProfileNameCandidate_(values[PLAYER_LIST_COLUMN_INDEX]);
+  if (columnBName) {
+    entries.push({ name: columnBName, url: explicitUrl });
   }
 
-  // Last-resort fallback: first non-empty value in the row.
-  return String(values.find(value => String(value || "").trim()) || "").trim();
+  // If a row has a CSC profile URL but no clean name column, use the URL slug.
+  const urls = values.map(cleanProfileUrlCandidate_).filter(Boolean);
+  urls.forEach(url => {
+    const urlName = cleanProfileNameCandidate_(extractProfileNameFromUrl_(url));
+    if (urlName) entries.push({ name: urlName, url });
+  });
+
+  // Last-resort fallback: collect short non-url cells as possible player names.
+  // This handles OpenSheet when blank columns collapse and column B becomes the first value.
+  values.forEach(value => {
+    const possibleName = cleanProfileNameCandidate_(value);
+    if (possibleName) entries.push({ name: possibleName, url: explicitUrl });
+  });
+
+  const map = {};
+  entries.forEach(entry => addPlayerProfileEntry_(map, entry.name, entry.url));
+  return Object.values(map);
+}
+
+function getProfileUrlForName(profileName) {
+  const key = normalizeProfileNameKey_(profileName);
+  return playerProfileUrlMap[key] || profileUrlForName_(profileName);
 }
 
 function escapeRegex(text) {
@@ -121,18 +267,25 @@ function escapeRegex(text) {
 }
 
 function findProfileNameMatches(text) {
+  const raw = String(text || "");
   const matches = [];
   const usedRanges = [];
 
+  if (!raw || !playerProfileNames.length) return matches;
+
   playerProfileNames.forEach(profileName => {
+    const safeName = escapeRegex(profileName);
+
+    // Match exactly: Name- where the final dash is the marker.
+    // This avoids linking normal words and still supports names with dashes, e.g. -Cram--.
     const regex = new RegExp(
-      `(^|[^A-Za-z0-9_])(${escapeRegex(profileName)})-(?=$|[^A-Za-z0-9_])`,
+      `(^|[^A-Za-z0-9_])(${safeName})-(?=$|[^A-Za-z0-9_])`,
       "gi"
     );
 
     let match;
 
-    while ((match = regex.exec(text)) !== null) {
+    while ((match = regex.exec(raw)) !== null) {
       const prefixLength = match[1].length;
 
       const start = match.index + prefixLength;
@@ -176,9 +329,9 @@ function profileLinkedHTML(text) {
     html += escapeHTML(raw.slice(cursor, match.start));
 
     const visibleText = raw.slice(match.start, match.end);
-    const url = PROFILE_BASE_URL + encodeURIComponent(match.profileName);
+    const url = getProfileUrlForName(match.profileName);
 
-    html += `<a href="${url}" target="_blank" rel="noopener noreferrer">${escapeHTML(visibleText)}</a>`;
+    html += `<a href="${escapeHTML(url)}" target="_blank" rel="noopener noreferrer">${escapeHTML(visibleText)}</a>`;
 
     // Skip the trailing marker dash so it does not show.
     cursor = match.markerEnd;
@@ -187,6 +340,36 @@ function profileLinkedHTML(text) {
   html += escapeHTML(raw.slice(cursor));
 
   return html;
+}
+
+function profileCleanedPlainText(text) {
+  const raw = String(text || "");
+
+  if (!raw || !playerProfileNames.length) {
+    return raw;
+  }
+
+  const matches = findProfileNameMatches(raw);
+
+  if (!matches.length) {
+    return raw;
+  }
+
+  let cleaned = "";
+  let cursor = 0;
+
+  matches.forEach(match => {
+    cleaned += raw.slice(cursor, match.end);
+    cursor = match.markerEnd;
+  });
+
+  cleaned += raw.slice(cursor);
+
+  return cleaned;
+}
+
+function profileCleanedTextBlocks(blocks) {
+  return (blocks || []).map(block => profileCleanedPlainText(block));
 }
 function parseTeamColors(row) {
   const raw = String(
@@ -543,7 +726,7 @@ function localLogoPath(team) {
 }
 
 function tierCacheKey(tierName) {
-  return `csc_article_generator_saved_data_v8_${tierName}`;
+  return `csc_article_generator_saved_data_v11_${tierName}`;
 }
 
 function saveTierData(tierName, rankData, matchData, finalRows = [], yapRows = [], teamRecordData = []) {
@@ -819,14 +1002,110 @@ function parseCSV(text) {
   return rows.filter(r => r.some(c => String(c || "").trim()));
 }
 
+function gvizSheetURL(sheetId, tabName) {
+  const handlerName = `__cscGviz_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?` +
+    `tqx=out:json;responseHandler:${handlerName}&` +
+    `headers=0&sheet=${encodeURIComponent(tabName)}`;
+
+  return { url, handlerName };
+}
+
+function gvizValueToString(cell) {
+  if (!cell) return "";
+  if (cell.f !== undefined && cell.f !== null) return String(cell.f);
+  if (cell.v !== undefined && cell.v !== null) return String(cell.v);
+  return "";
+}
+
+function gvizTableToRows(table) {
+  const rows = table && Array.isArray(table.rows) ? table.rows : [];
+  const columnCount = Math.max(
+    table && Array.isArray(table.cols) ? table.cols.length : 0,
+    ...rows.map(row => Array.isArray(row.c) ? row.c.length : 0),
+    14
+  );
+
+  return rows
+    .map(row => {
+      const cells = Array.isArray(row.c) ? row.c : [];
+      const out = [];
+
+      for (let i = 0; i < columnCount; i++) {
+        out.push(gvizValueToString(cells[i]));
+      }
+
+      return out;
+    })
+    .filter(row => row.some(cell => String(cell || "").trim()));
+}
+
+function fetchGvizRowsNoCors(sheetId, tabName, label) {
+  return new Promise((resolve, reject) => {
+    const { url, handlerName } = gvizSheetURL(sheetId, tabName);
+    const script = document.createElement("script");
+    let settled = false;
+
+    const cleanup = () => {
+      try { delete window[handlerName]; } catch { window[handlerName] = undefined; }
+      if (script.parentNode) script.parentNode.removeChild(script);
+    };
+
+    const fail = message => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(new Error(message));
+    };
+
+    window[handlerName] = response => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+
+      if (!response || response.status === "error") {
+        reject(new Error(`${label} Google visualization fallback failed.`));
+        return;
+      }
+
+      resolve(gvizTableToRows(response.table));
+    };
+
+    script.onerror = () => fail(`${label} Google visualization script failed to load.`);
+    script.src = url;
+    document.head.appendChild(script);
+
+    setTimeout(() => fail(`${label} Google visualization fallback timed out.`), 12000);
+  });
+}
+
+function openSheetRowsPreservingHeader(jsonRows) {
+  if (!Array.isArray(jsonRows) || !jsonRows.length) return [];
+
+  const headers = Object.keys(jsonRows[0]);
+  const valueRows = jsonRows.map(row => headers.map(header => row[header] || ""));
+
+  // OpenSheet uses the first sheet row as headers. For Final tabs, row 1 can be
+  // a real article cell, including N1. Add the header row back so N1 is not lost.
+  return [headers, ...valueRows].filter(row =>
+    row.some(cell => String(cell || "").trim())
+  );
+}
+
 async function fetchRawSheetRows(sheetId, tabName, label) {
   try {
     return await fetchCsvRowsOnly(sheetId, tabName, label);
   } catch (csvErr) {
-    console.warn(`${label} CSV pull failed. Trying OpenSheet fallback.`, csvErr);
+    console.warn(`${label} CSV pull failed. Trying Google visualization fallback.`, csvErr);
 
-    const jsonRows = await fetchSheetData(openSheetURL(sheetId, tabName), label);
-    return jsonRows.map(row => Object.values(row));
+    try {
+      return await fetchGvizRowsNoCors(sheetId, tabName, label);
+    } catch (gvizErr) {
+      console.warn(`${label} Google visualization fallback failed. Trying OpenSheet fallback.`, gvizErr);
+
+      const jsonRows = await fetchSheetData(openSheetURL(sheetId, tabName), label);
+      return openSheetRowsPreservingHeader(jsonRows);
+    }
   }
 }
 
@@ -1810,7 +2089,7 @@ function articlePlainTextToHTML(text) {
       const label = line.slice(0, colonIndex + 1);
       const body = line.slice(colonIndex + 1).trim();
 
-      return `<p style="margin:10px 0;font-family:Arial,sans-serif;font-size:15px;line-height:1.45;color:#111827;"><strong>${escapeHTML(label)}</strong> ${profileLinkedHTML(body)}</p>`;
+      return `<p style="margin:10px 0;font-family:Arial,sans-serif;font-size:15px;line-height:1.45;color:#111827;"><strong>${profileLinkedHTML(label)}</strong> ${profileLinkedHTML(body)}</p>`;
     }
 
     return `<p style="margin:10px 0;font-family:Arial,sans-serif;font-size:15px;line-height:1.45;color:#111827;">${profileLinkedHTML(line)}</p>`;
@@ -1868,7 +2147,7 @@ async function copyFullArticleText(button) {
   const originalText = button ? button.innerText : "";
 
   try {
-    const plainText = currentArticleTextBlocks.join("\n\n").trim();
+    const plainText = profileCleanedTextBlocks(currentArticleTextBlocks).join("\n\n").trim();
 
     if (!plainText) throw new Error("No article text found.");
 
@@ -1889,7 +2168,7 @@ async function copyFullArticleText(button) {
     console.error("ARTICLE COPY ERROR:", err);
 
     try {
-      const plainText = currentArticleTextBlocks.join("\n\n").trim();
+      const plainText = profileCleanedTextBlocks(currentArticleTextBlocks).join("\n\n").trim();
       if (plainText) await navigator.clipboard.writeText(plainText);
 
       if (button) {
@@ -1926,7 +2205,7 @@ async function copyTeamArticleText(index, button) {
     await navigator.clipboard.write([
       new ClipboardItem({
         "text/html": new Blob([html], { type: "text/html" }),
-        "text/plain": new Blob([text], { type: "text/plain" })
+        "text/plain": new Blob([profileCleanedPlainText(text)], { type: "text/plain" })
       })
     ]);
 
@@ -1941,7 +2220,7 @@ async function copyTeamArticleText(index, button) {
     try {
       const text = currentArticleTextBlocks[index] || "";
       if (text.trim()) {
-        await navigator.clipboard.writeText(text);
+        await navigator.clipboard.writeText(profileCleanedPlainText(text));
 
         if (button) {
           const oldText = button.innerText;
@@ -2300,7 +2579,7 @@ function finalTextToArticleHTML(text, emptyMessage = "No writeup found in the Fi
     const parsed = parseWriterBlurb(paragraph);
 
     if (parsed.writer && parsed.text) {
-      const writerLabel = `${escapeHTML(parsed.writer)}${parsed.rank ? ` #${escapeHTML(parsed.rank)}` : ""}`;
+      const writerLabel = `${profileLinkedHTML(parsed.writer)}${parsed.rank ? ` #${escapeHTML(parsed.rank)}` : ""}`;
 
       return `
         <div class="article-blurb">
@@ -2339,18 +2618,75 @@ function getPredictionYapTextFromRow(row) {
   return candidates[candidates.length - 1] || "";
 }
 
+function getKnownPredictionMatchups(matchData = []) {
+  return (matchData || [])
+    .map(row => getMatchupValue(row))
+    .map(matchup => String(matchup || "").trim())
+    .filter(Boolean)
+    .map(matchup => ({
+      raw: matchup,
+      key: normalizeMatchupKey(matchup)
+    }));
+}
+
+function findKnownPredictionMatchupInText(text, knownMatchups = []) {
+  const value = String(text || "").trim();
+  if (!value || !knownMatchups.length) return "";
+
+  const normalizedText = normalizeMatchupKey(value);
+  const firstLine = normalizeMatchupKey(firstNonEmptyLine(value));
+
+  // First choice: the writeup starts with the matchup title, like "ATL VS HR".
+  const firstLineMatch = knownMatchups.find(item =>
+    firstLine === item.key ||
+    firstLine.startsWith(item.key + " ") ||
+    firstLine.startsWith(item.key + ":") ||
+    firstLine.startsWith(item.key + " -")
+  );
+  if (firstLineMatch) return firstLineMatch.key;
+
+  // Second choice: the matchup appears anywhere in the article cell.
+  const anywhereMatch = knownMatchups.find(item =>
+    normalizedText === item.key ||
+    normalizedText.includes(item.key + " ") ||
+    normalizedText.includes(item.key + ":") ||
+    normalizedText.includes(item.key + " -") ||
+    normalizedText.includes("\n" + item.key)
+  );
+  if (anywhereMatch) return anywhereMatch.key;
+
+  return "";
+}
+
 function parsePredictionYapRows(finalRows, matchData = []) {
   const byMatchup = {};
+  const knownMatchups = getKnownPredictionMatchups(matchData);
   const finalColumnNSections = getFinalColumnNSections(finalRows || []);
 
-  (matchData || []).forEach((row, index) => {
-    const matchup = getMatchupValue(row);
-    if (!matchup) return;
+  const unmatchedTexts = [];
 
-    const text = finalColumnNSections[index] || "";
-    if (!text) return;
+  finalColumnNSections.forEach(text => {
+    const matchupKey = findKnownPredictionMatchupInText(text, knownMatchups);
 
-    byMatchup[normalizeMatchupKey(matchup)] = text;
+    if (matchupKey) {
+      byMatchup[matchupKey] = text;
+    } else if (String(text || "").trim()) {
+      unmatchedTexts.push(text);
+    }
+  });
+
+  // Fallback only for cells that did NOT announce a matchup. This prevents
+  // "ATL VS HR" yapping from landing under "BOO VS NAN" just because it was
+  // the first row in Column N.
+  let fallbackIndex = 0;
+  knownMatchups.forEach(item => {
+    if (byMatchup[item.key]) return;
+
+    const fallbackText = unmatchedTexts[fallbackIndex] || "";
+    if (fallbackText) {
+      byMatchup[item.key] = fallbackText;
+      fallbackIndex++;
+    }
   });
 
   return byMatchup;
@@ -2475,7 +2811,7 @@ async function copyFullPredictionArticleText(button) {
   const originalText = button ? button.innerText : "";
 
   try {
-    const plainText = currentPredictionArticleTextBlocks.join("\n\n").trim();
+    const plainText = profileCleanedTextBlocks(currentPredictionArticleTextBlocks).join("\n\n").trim();
 
     if (!plainText) throw new Error("No prediction article text found.");
 
@@ -2496,7 +2832,7 @@ async function copyFullPredictionArticleText(button) {
     console.error("PREDICTION ARTICLE COPY ERROR:", err);
 
     try {
-      const plainText = currentPredictionArticleTextBlocks.join("\n\n").trim();
+      const plainText = profileCleanedTextBlocks(currentPredictionArticleTextBlocks).join("\n\n").trim();
       if (plainText) await navigator.clipboard.writeText(plainText);
 
       if (button) {
@@ -2518,7 +2854,7 @@ async function copyPredictionArticleText(index, button) {
 
     if (!text.trim()) throw new Error("No prediction article text found for this matchup.");
 
-    await navigator.clipboard.writeText(text);
+    await navigator.clipboard.writeText(profileCleanedPlainText(text));
 
     if (button) {
       const oldText = button.innerText;
@@ -2681,6 +3017,10 @@ function buildDebugReport(tierName, rankData, matchData, finalRows, yapRows, tea
   const teamRecordValidation = validateTeamRecordData(teamRecordData);
   const warnings = [...rankValidation.warnings, ...matchValidation.warnings, ...teamRecordValidation.warnings];
 
+  if (!playerProfileNames.length) {
+    warnings.push("No player names loaded from the hyperlink sheet, so dash-marker hyperlinks will not render.");
+  }
+
   return {
     tierName,
     source: savedAt ? `Saved cache from ${formatSavedTime(savedAt)}` : "Fresh sheet pull",
@@ -2692,6 +3032,7 @@ function buildDebugReport(tierName, rankData, matchData, finalRows, yapRows, tea
     recordsFound: teamRecordValidation.recordsWithRecord || 0,
     powerArticleRows: countFinalColumnNRows(finalRows),
     predictionArticleRows: countFinalColumnNRows(yapRows),
+    profileNames: playerProfileNames.length || 0,
     warnings
   };
 }
@@ -2717,6 +3058,7 @@ function updateDebugPanel(report) {
       <div><span>Records found</span><strong>${report.recordsFound}</strong></div>
       <div><span>Power article rows</span><strong>${report.powerArticleRows}</strong></div>
       <div><span>Prediction article rows</span><strong>${report.predictionArticleRows}</strong></div>
+      <div><span>Profile names</span><strong>${report.profileNames || 0}</strong></div>
     </div>
     ${warningHTML}
   `;
@@ -2972,8 +3314,8 @@ function finalTextToArticleHTML(text, emptyMessage = "No writeup found in the Fi
     const parsed = parseWriterBlurb(paragraph);
 
     if (parsed.writer && parsed.text) {
-      const writer = normalizeWriterName(parsed.writer);
-      const writerLabel = `${escapeHTML(parsed.writer)}${parsed.rank ? ` #${escapeHTML(parsed.rank)}` : ""}`;
+      const writer = normalizeWriterName(profileCleanedPlainText(parsed.writer));
+      const writerLabel = `${profileLinkedHTML(parsed.writer)}${parsed.rank ? ` #${escapeHTML(parsed.rank)}` : ""}`;
 
       return `
         <div class="article-blurb" data-writer="${escapeHTML(writer)}">
@@ -3409,7 +3751,7 @@ async function copyFullArticleText(button) {
   const originalText = button ? button.innerText : "";
 
   try {
-    const plainText = currentArticleTextBlocks.join("\n\n").trim();
+    const plainText = profileCleanedTextBlocks(currentArticleTextBlocks).join("\n\n").trim();
     if (!plainText) throw new Error("No article text found.");
 
     const html = await withExpandedGallery("articleGallery", () => buildFullArticleClipboardHTML(button));
@@ -3429,7 +3771,7 @@ async function copyFullArticleText(button) {
     console.error("ARTICLE COPY ERROR:", err);
 
     try {
-      const plainText = currentArticleTextBlocks.join("\n\n").trim();
+      const plainText = profileCleanedTextBlocks(currentArticleTextBlocks).join("\n\n").trim();
       if (plainText) await navigator.clipboard.writeText(plainText);
 
       if (button) {
@@ -3449,7 +3791,7 @@ async function copyFullPredictionArticleText(button) {
   const originalText = button ? button.innerText : "";
 
   try {
-    const plainText = currentPredictionArticleTextBlocks.join("\n\n").trim();
+    const plainText = profileCleanedTextBlocks(currentPredictionArticleTextBlocks).join("\n\n").trim();
     if (!plainText) throw new Error("No prediction article text found.");
 
     const html = await withExpandedGallery("predictionArticleGallery", () => buildFullPredictionArticleClipboardHTML(button));
@@ -3469,7 +3811,7 @@ async function copyFullPredictionArticleText(button) {
     console.error("PREDICTION ARTICLE COPY ERROR:", err);
 
     try {
-      const plainText = currentPredictionArticleTextBlocks.join("\n\n").trim();
+      const plainText = profileCleanedTextBlocks(currentPredictionArticleTextBlocks).join("\n\n").trim();
       if (plainText) await navigator.clipboard.writeText(plainText);
 
       if (button) {
@@ -3506,10 +3848,10 @@ async function copyCurrentArticleTextOnly(button) {
   const oldText = button ? button.innerText : "";
 
   try {
-    const text = getCurrentTextBlocks().join("\n\n").trim();
+    const text = profileCleanedTextBlocks(getCurrentTextBlocks()).join("\n\n").trim();
     if (!text) throw new Error("No article text found.");
 
-    await navigator.clipboard.writeText(text);
+    await navigator.clipboard.writeText(profileCleanedPlainText(text));
 
     if (button) {
       button.innerText = "Copied!";
@@ -3524,7 +3866,7 @@ async function copyCurrentArticleTextOnly(button) {
 function buildDiscordPlainText() {
   const title = currentView === "article" ? `${currentTier} Power Rankings` : `${currentTier} Predictions`;
   const divider = "==============================";
-  return `${title}\n${divider}\n\n${getCurrentTextBlocks().join("\n\n")}`.trim();
+  return `${title}\n${divider}\n\n${profileCleanedTextBlocks(getCurrentTextBlocks()).join("\n\n")}`.trim();
 }
 
 async function copyCurrentDiscordArticle(button) {
@@ -3534,7 +3876,7 @@ async function copyCurrentDiscordArticle(button) {
     const text = buildDiscordPlainText();
     if (!text) throw new Error("No article text found.");
 
-    await navigator.clipboard.writeText(text);
+    await navigator.clipboard.writeText(profileCleanedPlainText(text));
 
     if (button) {
       button.innerText = "Copied!";

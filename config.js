@@ -12,19 +12,63 @@ const PROFILE_BASE_URL = "https://playcsc.com/stats/profile/";
 
 // Sheet that has your player list.
 // Column B = player names, so index 1 because JS arrays start at 0.
-const PLAYER_LIST_SHEET_ID = "1Judoh6GL4Xev9Xx4biKSVNP7HVJSnXNepz1VjY9cy5k";
+const PLAYER_LIST_SHEET_ID = "1TF6C-wP2ZFErV7o7bMF1sH0DFjsBmzMlWdeFYKd9-zo";
 
 // Main tab to try first. Fallbacks below are tried automatically if this fails.
 const PLAYER_LIST_TAB = "Players";
-const PLAYER_LIST_FALLBACK_TABS = ["Players", "Sheet1", "Player List", "PlayerList", "Names"];
+const PLAYER_LIST_FALLBACK_TABS = [
+  "Players",
+  "External",
+  "Sheet1",
+  "Player List",
+  "PlayerList",
+  "Names",
+  "Hyperlinks",
+  "Hyperlink",
+  "Player Hyperlinks",
+  "Player Links",
+  "Links",
+  "Profiles",
+  "CSC Profiles"
+];
 
 // Column B fallback if the header lookup cannot find a name column.
 const PLAYER_LIST_COLUMN_INDEX = 1;
 
 // These are checked first, so B1 can be Name, Player, Username, etc.
-const PLAYER_LIST_NAME_HEADERS = ["Name", "Player", "Players", "Username", "Handle"];
+const PLAYER_LIST_NAME_HEADERS = [
+  "Name",
+  "Player",
+  "Players",
+  "Player Name",
+  "Player Names",
+  "Username",
+  "Handle",
+  "CSC Name",
+  "Profile Name",
+  "IGN",
+  "Alias",
+  "Aliases",
+  "Display Name",
+  "Full Name",
+  "CSC Profile Name"
+];
+
+const PLAYER_LIST_URL_HEADERS = [
+  "URL",
+  "Link",
+  "Links",
+  "Profile",
+  "Profile URL",
+  "CSC Profile",
+  "CSC Profile URL",
+  "Hyperlink",
+  "Player Link"
+];
 
 let playerProfileNames = [];
+let playerProfileEntries = [];
+let playerProfileUrlMap = {};
 
 const TIER_ORDER = [
   "Recruit",
