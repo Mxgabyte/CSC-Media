@@ -47,3 +47,8 @@ For real access control, use one of these:
 3. Use Google Apps Script or GitHub API to publish shared snapshots to a backend file or sheet.
 
 The current local Publish Draft system is still browser-local. For a true public publish flow, the app needs a shared published-data source.
+
+
+## V2.17
+- Fixed Publish Mode viewer menu placement. The tier/article selector is now fixed at the top of the public view instead of rendering below the article content.
+- Added extra top spacing in Publish Mode so the menu does not cover the first article section.

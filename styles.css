@@ -2040,8 +2040,10 @@ body.publish-mode .publish-exit-button {
 ========================= */
 .publish-viewer-bar {
   display: none;
-  position: sticky;
+  position: fixed;
   top: 0;
+  left: 0;
+  right: 0;
   z-index: 100000;
   align-items: center;
   justify-content: space-between;
@@ -2130,7 +2132,7 @@ body.publish-mode .publish-viewer-bar {
 }
 
 body.publish-mode .app-main {
-  padding-top: 18px;
+  padding-top: 92px;
 }
 
 body.viewer-only .publish-exit-button {
@@ -2139,7 +2141,7 @@ body.viewer-only .publish-exit-button {
 
 @media (max-width: 760px) {
   .publish-viewer-bar {
-    position: sticky;
+    position: fixed;
     display: none;
     align-items: stretch;
     flex-direction: column;
@@ -2149,6 +2151,11 @@ body.viewer-only .publish-exit-button {
 
   body.publish-mode .publish-viewer-bar {
     display: flex;
+  }
+
+
+  body.publish-mode .app-main {
+    padding-top: 178px;
   }
 
   .publish-viewer-brand {
